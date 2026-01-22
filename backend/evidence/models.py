@@ -206,6 +206,11 @@ class EvidenceFile(models.Model):
     mime_type = models.CharField(max_length=100)
     uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, choices=EvidenceStatus.choices, default=EvidenceStatus.SUBMITTED)
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_files')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_notes = models.TextField(blank=True)
+    submission_notes = models.TextField(blank=True, help_text='Notes provided when this file was submitted')
     
     def __str__(self):
         return self.filename

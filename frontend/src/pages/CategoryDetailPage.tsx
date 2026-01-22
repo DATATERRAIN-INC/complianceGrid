@@ -26,6 +26,7 @@ export const CategoryDetailPage: React.FC = () => {
   const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
   const [processingReview, setProcessingReview] = useState(false);
+  const [reviewingFileId, setReviewingFileId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({
     name: '',
     description: '',
@@ -248,9 +249,18 @@ export const CategoryDetailPage: React.FC = () => {
     );
   }
 
-  const canSubmit =
-    category.current_submission?.status === 'PENDING' ||
-    category.current_submission?.status === 'REJECTED';
+  // Allow uploads until the due date, regardless of submission status
+  const canSubmit = (() => {
+    if (!category?.current_submission) return false;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time to compare dates only
+    const dueDate = new Date(category.current_submission.due_date);
+    dueDate.setHours(0, 0, 0, 0);
+    
+    // Allow uploads if today is before or equal to the due date
+    return today <= dueDate;
+  })();
 
   // Check if current user is the approver
   const isApprover = currentUser && category.approver && currentUser.id === category.approver.id;
@@ -259,18 +269,19 @@ export const CategoryDetailPage: React.FC = () => {
   const canReview = category.current_submission && 
     (category.current_submission.status === 'SUBMITTED' || category.current_submission.status === 'UNDER_REVIEW') &&
     isApprover;
+    const handleFileApprove = (fileId: number) => {
+      setReviewAction('approve');
+      setReviewNotes('');
+      setReviewingFileId(fileId);
+      setShowReviewModal(true);
+    };
 
-  const handleApproveClick = () => {
-    setReviewAction('approve');
-    setReviewNotes('');
-    setShowReviewModal(true);
-  };
-
-  const handleRejectClick = () => {
-    setReviewAction('reject');
-    setReviewNotes('');
-    setShowReviewModal(true);
-  };
+    const handleFileReject = (fileId: number) => {
+      setReviewAction('reject');
+      setReviewNotes('');
+      setReviewingFileId(fileId);
+      setShowReviewModal(true);
+    };
 
   const handleReviewSubmit = async () => {
     if (!category?.current_submission || !reviewAction) return;
@@ -282,33 +293,60 @@ export const CategoryDetailPage: React.FC = () => {
 
     setProcessingReview(true);
     try {
-      if (reviewAction === 'approve') {
-        const response = await submissionsApi.approve(category.current_submission.id, reviewNotes);
-        // Check for upload status and errors in response
-        if (response.upload_status) {
-          toast.success(response.upload_status);
-        } else if (response.upload_warning) {
-          toast.success('Submission approved successfully!', { duration: 3000 });
-          toast.error(response.upload_warning, { duration: 5000 });
-          if (response.upload_errors && Array.isArray(response.upload_errors)) {
-            response.upload_errors.forEach((error: string) => {
-              toast.error(error, { duration: 4000 });
-            });
+      // Check if this is a file-level or submission-level review
+      if (reviewingFileId) {
+        // File-level approval/rejection
+        if (reviewAction === 'approve') {
+          const response = await submissionsApi.approveFile(reviewingFileId, reviewNotes);
+          if (response.upload_status) {
+            toast.success(response.upload_status);
+          } else if (response.upload_warning) {
+            toast.success('File approved successfully!', { duration: 3000 });
+            toast.error(response.upload_warning, { duration: 5000 });
+            if (response.upload_errors && Array.isArray(response.upload_errors)) {
+              response.upload_errors.forEach((error: string) => {
+                toast.error(error, { duration: 4000 });
+              });
+            }
+          } else {
+            toast.success('File approved successfully!');
           }
         } else {
-          toast.success('Submission approved successfully! Files will be uploaded to Google Drive.');
+          await submissionsApi.rejectFile(reviewingFileId, reviewNotes);
+          toast.success('File rejected successfully!');
         }
       } else {
-        await submissionsApi.reject(category.current_submission.id, reviewNotes);
-        toast.success('Submission rejected successfully!');
+        // Submission-level approval/rejection
+        if (reviewAction === 'approve') {
+          const response = await submissionsApi.approve(category.current_submission.id, reviewNotes);
+          // Check for upload status and errors in response
+          if (response.upload_status) {
+            toast.success(response.upload_status);
+          } else if (response.upload_warning) {
+            toast.success('Submission approved successfully!', { duration: 3000 });
+            toast.error(response.upload_warning, { duration: 5000 });
+            if (response.upload_errors && Array.isArray(response.upload_errors)) {
+              response.upload_errors.forEach((error: string) => {
+                toast.error(error, { duration: 4000 });
+              });
+            }
+          } else {
+            toast.success('Submission approved successfully! Files will be uploaded to Google Drive.');
+          }
+        } else {
+          await submissionsApi.reject(category.current_submission.id, reviewNotes);
+          toast.success('Submission rejected successfully!');
+        }
       }
       setShowReviewModal(false);
       setReviewNotes('');
       setReviewAction(null);
+      setReviewingFileId(null);
       fetchCategoryDetail(); // Refresh to get updated status
     } catch (error: any) {
-      console.error('Error reviewing submission:', error);
-      toast.error(error.response?.data?.error || `Failed to ${reviewAction} submission`);
+      console.error('Error reviewing:', error);
+      const entityType = reviewingFileId ? 'file' : 'submission';
+      toast.error(error.response?.data?.error || `Failed to ${reviewAction} ${entityType}`);
     } finally {
       setProcessingReview(false);
     }
@@ -535,7 +573,7 @@ export const CategoryDetailPage: React.FC = () => {
       </div>
 
       {/* Upload Section */}
-      {canSubmit && !isEditing && (
+      {canSubmit && !isEditing && !isApprover && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Submit Evidence</h2>
 
@@ -638,8 +676,15 @@ export const CategoryDetailPage: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
             <h3 className="text-xl font-semibold mb-4">
-              {reviewAction === 'approve' ? 'Approve Submission' : 'Reject Submission'}
+              {reviewAction === 'approve' 
+                ? (reviewingFileId ? 'Approve File' : 'Approve Submission')
+                : (reviewingFileId ? 'Reject File' : 'Reject Submission')}
             </h3>
+            {reviewingFileId && category?.current_submission && (
+              <p className="text-sm text-gray-600 mb-4">
+                File: <span className="font-medium">{category.current_submission.files.find(f => f.id === reviewingFileId)?.filename}</span>
+              </p>
+            )}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Review Notes {reviewAction === 'reject' && <span className="text-red-500">*</span>}
@@ -660,6 +705,7 @@ export const CategoryDetailPage: React.FC = () => {
                   setShowReviewModal(false);
                   setReviewNotes('');
                   setReviewAction(null);
+                  setReviewingFileId(null);
                 }}
                 disabled={processingReview}
               >
@@ -679,37 +725,101 @@ export const CategoryDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* Approval Section - Only visible to approvers */}
-      {!isEditing && canReview && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-blue-500">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <AlertCircle className="text-blue-500" size={24} />
-            Pending Approval
-          </h2>
-          <p className="text-gray-600 mb-4">
-            This submission is awaiting your approval. Please review the files and either approve or reject the submission.
-          </p>
-          <div className="flex gap-3">
-            <Button
-              variant="success"
-              onClick={handleApproveClick}
-            >
-              <CheckCircle size={18} className="mr-2" />
-              Approve
-            </Button>
-            <Button
-              variant="danger"
-              onClick={handleRejectClick}
-            >
-              <XCircle size={18} className="mr-2" />
-              Reject
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* Pending Approval Section with Submitted Files - Only visible to approvers */}
+      {!isEditing && canReview && category.current_submission &&
+        category.current_submission.files.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-blue-500">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <AlertCircle className="text-blue-500" size={24} />
+              Pending Approval
+            </h2>
+            <p className="text-gray-600 mb-4">
+              This submission is awaiting your approval. Please review each file and approve or reject individually.
+            </p>
+            
+            <div className="space-y-3">
+              {category.current_submission.files.map((file) => {
+                const fileStatus = (file as any).status || 'SUBMITTED';
+                const canReviewFile = fileStatus === 'SUBMITTED' || fileStatus === 'UNDER_REVIEW';
+                
+                return (
+                  <div
+                    key={file.id}
+                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200"
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      <File size={20} className="text-gray-400" />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-900">{file.filename}</span>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            fileStatus === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                            fileStatus === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {fileStatus}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-500">
+                          Uploaded: {new Date(file.uploaded_at).toLocaleDateString()}
+                          {(file as any).reviewed_at && (
+                            <> | Reviewed: {new Date((file as any).reviewed_at).toLocaleDateString()}</>
+                          )}
+                        </span>
+                        {(file as any).submission_notes && (
+                          <p className="text-xs text-gray-700 mt-1 mr-1 text-justify whitespace-pre-line">
+                            <span className="font-medium">Submission Notes:</span> {(file as any).submission_notes}
+                          </p>
+                        )}
+                        {(file as any).review_notes && (
+                          <p className="text-xs text-gray-600 mt-1 italic">
+                            <span className="font-medium">Review Notes:</span> {(file as any).review_notes}
+                          </p>
+                        )}
+                      </div>
+                    </div>
 
-      {/* Current Submission Files */}
-      {!isEditing && category.current_submission &&
+                    <div className="flex items-center gap-3">
+                      <a
+                        href={file.file_url || file.google_drive_file_url || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline text-sm"
+                      >
+                        {file.file_url ? 'View File' : 'View in Drive'}
+                      </a>
+                      
+                      {canReviewFile && (
+                        <>
+                          <Button
+                            variant="success"
+                            onClick={() => handleFileApprove(file.id)}
+                            disabled={processingReview}
+                            className="ml-2"
+                          >
+                            <CheckCircle size={16} className="mr-1" />
+                            Approve
+                          </Button>
+                          <Button
+                            variant="danger"
+                            onClick={() => handleFileReject(file.id)}
+                            disabled={processingReview}
+                          >
+                            <XCircle size={16} className="mr-1" />
+                            Reject
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+      {/* Current Submission Files - For non-approvers */}
+      {!isEditing && !canReview && category.current_submission &&
         category.current_submission.files.length > 0 && (
           <div className="bg-white rounded-lg shadow p-6 mb-6">
             <h2 className="text-xl font-semibold mb-4">Submitted Files</h2>
@@ -719,12 +829,21 @@ export const CategoryDetailPage: React.FC = () => {
                   key={file.id}
                   className="flex items-center justify-between p-3 bg-gray-50 rounded"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-1">
                     <File size={20} className="text-gray-400" />
-                    <span className="text-sm">{file.filename}</span>
-                    <span className="text-xs text-gray-500">
-                      {new Date(file.uploaded_at).toLocaleDateString()}
-                    </span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{file.filename}</span>
+                        <span className="text-sm text-gray-500">
+                          Uploaded: {new Date(file.uploaded_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {(file as any).submission_notes && (
+                        <p className="text-sm text-gray-700 mt-1 mr-1 text-justify whitespace-pre-line">
+                          <span className="font-medium">Submission Notes:</span> {(file as any).submission_notes}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   <a
@@ -738,17 +857,6 @@ export const CategoryDetailPage: React.FC = () => {
                 </div>
               ))}
             </div>
-
-            {category.current_submission.submission_notes && (
-              <div className="mt-4 p-3 bg-blue-50 rounded">
-                <p className="text-sm font-medium text-gray-700 mb-1">
-                  Submission Notes:
-                </p>
-                <p className="text-sm text-gray-600">
-                  {category.current_submission.submission_notes}
-                </p>
-              </div>
-            )}
           </div>
         )}
 
@@ -768,7 +876,7 @@ export const CategoryDetailPage: React.FC = () => {
                       Period: {new Date(submission.period_start_date).toLocaleDateString()} - {new Date(submission.period_end_date).toLocaleDateString()}
                     </span>
                     {submission.submitted_by && (
-                      <span className="text-xs text-gray-500 ml-2">
+                      <span className="text-xs text-gray-700 ml-2 capitalize">
                         by {submission.submitted_by.username}
                       </span>
                     )}
@@ -784,19 +892,44 @@ export const CategoryDetailPage: React.FC = () => {
                 </div>
                 {submission.files && submission.files.length > 0 && (
                   <div className="mt-2">
-                    <p className="text-xs text-gray-500 mb-1">Files:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {submission.files.map((file) => (
-                        <a
-                          key={file.id}
-                          href={file.file_url || file.google_drive_file_url || '#'}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-600 hover:underline"
-                        >
-                          {file.filename}
-                        </a>
-                      ))}
+                    <p className="text-base text-black mb-2">Files:</p>
+                    <div className="space-y-2">
+                      {submission.files.map((file) => {
+                        const fileStatus = (file as any).status || 'SUBMITTED';
+                        return (
+                          <div key={file.id} className="pl-2 border-l-2 border-gray-200">
+                            <div className="flex items-center gap-2 mb-1">
+                              <a
+                                href={file.file_url || file.google_drive_file_url || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-blue-600 hover:underline font-medium"
+                              >
+                                {file.filename}
+                              </a>
+                              <span className={`px-2 py-0.5 rounded-full text-sm font-medium ${
+                                fileStatus === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                                fileStatus === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                                'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {fileStatus}
+                              </span>
+                            </div>
+                            {(file as any).submission_notes && (
+                              <div className="text-sm text-gray-600 mt-1 ml-0">
+                                <span className="font-medium">Submission Notes:</span>{' '}
+                                <span className="whitespace-pre-line">{((file as any).submission_notes)}</span>
+                              </div>
+                            )}
+                            {(file as any).review_notes && (
+                              <div className="text-sm text-gray-500 mt-1 ml-0">
+                                <span className="font-medium">Review Notes:</span>{' '}
+                                <span >{((file as any).review_notes)}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

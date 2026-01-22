@@ -80,6 +80,14 @@ export interface Submission {
     file_size: number;
     mime_type: string;
     uploaded_at: string;
+    status?: string;
+    reviewed_by?: {
+      id: number;
+      username: string;
+    };
+    reviewed_at?: string;
+    review_notes?: string;
+    submission_notes?: string;
   }>;
   comments: Array<{
     id: number;
