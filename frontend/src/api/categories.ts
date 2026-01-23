@@ -121,7 +121,9 @@ export const categoriesApi = {
     page: number = 1,
     pageSize: number = 20,
     showHidden: boolean = false,
-    categoryGroup: string = ''
+    categoryGroup: string = '',
+    assignee: string = '',
+    showAll: boolean = false
   ): Promise<{ results: Category[]; count: number; next: string | null; previous: string | null }> => {
     const params: any = {};
     if (showHidden) {
@@ -133,6 +135,8 @@ export const categoriesApi = {
     if (reviewPeriod) params.review_period = reviewPeriod;
     if (status) params.status = status;
     if (categoryGroup) params.category_group = categoryGroup;
+    if (assignee) params.assignee = assignee;
+    if (showAll) params.show_all = 'true';
     params.page = page;
     params.page_size = pageSize === 10000 ? 10000 : pageSize; // "All" = 10000
     
@@ -175,15 +179,16 @@ export const categoriesApi = {
     await apiClient.delete(`/categories/${id}/`);
   },
 
-  hide: async (id: number): Promise<Category> => {
-    const response = await apiClient.patch(`/categories/${id}/`, { is_active: false });
-    return response.data;
-  },
+  // Hide functionality commented out
+  // hide: async (id: number): Promise<Category> => {
+  //   const response = await apiClient.patch(`/categories/${id}/`, { is_active: false });
+  //   return response.data;
+  // },
 
-  unhide: async (id: number): Promise<Category> => {
-    const response = await apiClient.patch(`/categories/${id}/`, { is_active: true });
-    return response.data;
-  },
+  // unhide: async (id: number): Promise<Category> => {
+  //   const response = await apiClient.patch(`/categories/${id}/`, { is_active: true });
+  //   return response.data;
+  // },
 
   getSubmissions: async (id: number): Promise<Submission[]> => {
     const response = await apiClient.get(`/categories/${id}/submissions/`);
