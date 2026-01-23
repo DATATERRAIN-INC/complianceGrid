@@ -81,5 +81,24 @@ export const submissionsApi = {
     const response = await apiClient.get('/submissions/dashboard/');
     return response.data;
   },
+
+  // File-level approval/rejection
+  approveFile: async (fileId: number, reviewNotes?: string): Promise<any & {
+    upload_status?: string;
+    upload_warning?: string;
+    upload_errors?: string[];
+  }> => {
+    const response = await apiClient.post(`/files/${fileId}/approve/`, {
+      review_notes: reviewNotes,
+    });
+    return response.data;
+  },
+
+  rejectFile: async (fileId: number, reviewNotes: string): Promise<any> => {
+    const response = await apiClient.post(`/files/${fileId}/reject/`, {
+      review_notes: reviewNotes,
+    });
+    return response.data;
+  },
 };
 

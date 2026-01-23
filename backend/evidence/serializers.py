@@ -14,14 +14,17 @@ class UserSerializer(serializers.ModelSerializer):
 
 class EvidenceFileSerializer(serializers.ModelSerializer):
     uploaded_by = UserSerializer(read_only=True)
+    reviewed_by = UserSerializer(read_only=True)
     category_name = serializers.CharField(source='submission.category.name', read_only=True)
     submission_id = serializers.IntegerField(source='submission.id', read_only=True)
     file_url = serializers.SerializerMethodField()
+    submission_notes = serializers.SerializerMethodField()
     
     class Meta:
         model = EvidenceFile
         fields = ['id', 'filename', 'file', 'file_url', 'google_drive_file_id', 'google_drive_file_url',
-                  'file_size', 'mime_type', 'uploaded_by', 'uploaded_at', 'category_name', 'submission_id']
+                  'file_size', 'mime_type', 'uploaded_by', 'uploaded_at', 'category_name', 'submission_id',
+                  'status', 'reviewed_by', 'reviewed_at', 'review_notes', 'submission_notes']
     
     def get_file_url(self, obj):
         """Return the file URL (local file if available, otherwise Google Drive URL)"""
@@ -31,6 +34,14 @@ class EvidenceFileSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.file.url)
             return obj.file.url
         return obj.google_drive_file_url or ''
+    
+    def get_submission_notes(self, obj):
+        """Return file-level submission_notes, or fall back to submission's submission_notes if file doesn't have it"""
+        # If file has its own submission_notes, use that
+        if obj.submission_notes:
+            return obj.submission_notes
+        # Otherwise, fall back to submission's submission_notes
+        return obj.submission.submission_notes or ''
 
 
 class SubmissionCommentSerializer(serializers.ModelSerializer):
@@ -79,6 +90,7 @@ class EvidenceCategorySerializer(serializers.ModelSerializer):
     )
     created_by = UserSerializer(read_only=True)
     current_submission = serializers.SerializerMethodField()
+    past_submissions = serializers.SerializerMethodField()
     compliance_score = serializers.SerializerMethodField()
     
     class Meta:
@@ -86,31 +98,38 @@ class EvidenceCategorySerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'description', 'evidence_requirements', 'review_period',
                   'category_group', 'google_drive_folder_id', 'assigned_reviewers', 'primary_assignee', 
                   'assignee', 'assignee_id', 'approver', 'approver_id', 'created_by', 'created_at', 'updated_at', 'is_active', 
-                  'current_submission', 'compliance_score']
+                  'current_submission', 'past_submissions', 'compliance_score']
     
     def get_current_submission(self, obj):
-        """Get the current/active submission for this category"""
+        """Get the current/active submission with files filtered to only include status 'SUBMITTED'"""
         try:
-            # Check if submissions are prefetched
-            if hasattr(obj, '_prefetched_objects_cache') and 'submissions' in obj._prefetched_objects_cache:
-                # Use prefetched submissions (they're already loaded)
-                submissions = obj._prefetched_objects_cache['submissions']
-                # Filter active submissions
-                active_submissions = [
-                    s for s in submissions 
-                    if s.status in ['PENDING', 'SUBMITTED', 'UNDER_REVIEW']
-                ]
-                if active_submissions:
-                    # Sort by due_date descending and get the first one
-                    submission = sorted(active_submissions, key=lambda x: x.due_date, reverse=True)[0]
-                    return EvidenceSubmissionSerializer(submission, context=self.context).data
-            else:
-                # Fallback: query directly
-                submission = obj.submissions.filter(
-                    status__in=['PENDING', 'SUBMITTED', 'UNDER_REVIEW']
-                ).order_by('-due_date').first()
-                if submission:
-                    return EvidenceSubmissionSerializer(submission, context=self.context).data
+            from .models import EvidenceStatus
+            
+            # Get the active submission (PENDING, SUBMITTED, or UNDER_REVIEW)
+            submission = obj.submissions.filter(
+                status__in=[EvidenceStatus.PENDING, EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW]
+            ).order_by('-due_date').first()
+            
+            if not submission:
+                return None
+            
+            # Serialize the submission
+            submission_data = EvidenceSubmissionSerializer(submission, context=self.context).data
+            
+            # Filter files to only include those with status SUBMITTED
+            # Ensure files is always a list (never None or missing)
+            files = submission_data.get('files')
+            if files is None:
+                files = []
+            elif not isinstance(files, list):
+                files = []
+            
+            submission_data['files'] = [
+                file for file in files
+                if file.get('status') == EvidenceStatus.SUBMITTED
+            ]
+            
+            return submission_data
         except Exception as e:
             # Log error but don't break the request
             import logging
@@ -125,21 +144,51 @@ class EvidenceCategorySerializer(serializers.ModelSerializer):
             return 0
         
         return obj.calculate_compliance_score()
-
-
-class EvidenceCategoryDetailSerializer(EvidenceCategorySerializer):
-    """Extended serializer for category detail view with past submissions"""
-    past_submissions = serializers.SerializerMethodField()
-    
-    class Meta(EvidenceCategorySerializer.Meta):
-        fields = EvidenceCategorySerializer.Meta.fields + ['past_submissions']
     
     def get_past_submissions(self, obj):
-        """Get past submissions (approved, rejected, or old)"""
-        submissions = obj.submissions.filter(
-            status__in=['APPROVED', 'REJECTED']
-        ).order_by('-due_date')[:10]
-        return EvidenceSubmissionSerializer(submissions, many=True).data
+        """Get submissions with files filtered to only include status 'APPROVED' or 'REJECTED'"""
+        try:
+            from django.db.models import Q
+            from .models import EvidenceStatus
+            
+            # Get submissions that have files with status APPROVED or REJECTED
+            submissions = obj.submissions.filter(
+                Q(status__in=[EvidenceStatus.APPROVED, EvidenceStatus.REJECTED]) |
+                Q(files__status__in=[EvidenceStatus.APPROVED, EvidenceStatus.REJECTED])
+            ).distinct().order_by('-due_date')[:10]
+            
+            # Serialize each submission and filter files
+            result = []
+            for submission in submissions:
+                submission_data = EvidenceSubmissionSerializer(submission, context=self.context).data
+                
+                # Filter files to only include those with status APPROVED or REJECTED
+                # Ensure files is always a list (never None or missing)
+                files = submission_data.get('files')
+                if files is None:
+                    files = []
+                elif not isinstance(files, list):
+                    files = []
+                
+                submission_data['files'] = [
+                    file for file in files
+                    if file.get('status') in [EvidenceStatus.APPROVED, EvidenceStatus.REJECTED]
+                ]
+                # Only include submissions that have at least one approved/rejected file
+                if submission_data['files']:
+                    result.append(submission_data)
+            
+            return result
+        except Exception as e:
+            # Log error but don't break the request
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error getting past submissions for category {obj.id}: {e}")
+        return []
+
+
+# Alias for backward compatibility - both serializers now have the same functionality
+EvidenceCategoryDetailSerializer = EvidenceCategorySerializer
 
 
 class DashboardStatsSerializer(serializers.Serializer):

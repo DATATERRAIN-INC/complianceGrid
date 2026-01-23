@@ -799,7 +799,9 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         """Submit evidence files for a submission"""
         submission = self.get_object()
         
-        if submission.status not in [EvidenceStatus.PENDING, EvidenceStatus.REJECTED]:
+      
+        if submission.status not in [EvidenceStatus.PENDING, EvidenceStatus.REJECTED, 
+                                     EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW]:
             return Response(
                 {'error': 'This submission cannot be submitted in its current status.'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -842,16 +844,23 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                     file=file,  # Save file locally using FileField
                     file_size=file.size,
                     mime_type=file.content_type or 'application/octet-stream',
-                    uploaded_by=request.user if request.user.is_authenticated else None
+                    uploaded_by=request.user if request.user.is_authenticated else None,
+                    submission_notes=notes  # Save notes to each file
                 )
                 
                 uploaded_files.append(evidence_file)
             
             # Update submission
-            submission.status = EvidenceStatus.SUBMITTED
-            submission.submitted_by = request.user if request.user.is_authenticated else None
-            submission.submitted_at = timezone.now()
-            submission.submission_notes = notes
+            # Only change status to SUBMITTED if it was PENDING or REJECTED
+            # If already SUBMITTED or UNDER_REVIEW, keep the current status
+            if submission.status in [EvidenceStatus.PENDING, EvidenceStatus.REJECTED]:
+                submission.status = EvidenceStatus.SUBMITTED
+                submission.submitted_by = request.user if request.user.is_authenticated else None
+                submission.submitted_at = timezone.now()
+            
+            # Update submission notes if provided
+            if notes:
+                submission.submission_notes = notes
             
             # Update due date if provided
             if due_date_str:
@@ -1719,6 +1728,133 @@ class EvidenceFileViewSet(viewsets.ReadOnlyModelViewSet):
             result.append(date_entry)
         
         return Response(result)
+    
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve a file and optionally upload to Google Drive"""
+        evidence_file = self.get_object()
+        
+        if evidence_file.status not in [EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW]:
+            return Response(
+                {'error': 'Only submitted or under review files can be approved.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        review_notes = request.data.get('review_notes', '')
+        
+        # Update file status
+        evidence_file.status = EvidenceStatus.APPROVED
+        evidence_file.reviewed_by = request.user if request.user.is_authenticated else None
+        evidence_file.reviewed_at = timezone.now()
+        evidence_file.review_notes = review_notes
+        evidence_file.save()
+        
+        # Upload file to Google Drive after approval
+        category = evidence_file.submission.category
+        upload_errors = []
+        uploaded = False
+        
+        if category.google_drive_folder_id:
+            access_token = request.session.get('google_access_token')
+            refresh_token = request.session.get('google_refresh_token')
+            
+            if not access_token:
+                # Try to get token from any user's session
+                from django.contrib.sessions.models import Session
+                recent_sessions = Session.objects.filter(expire_date__gte=timezone.now())
+                for session in recent_sessions:
+                    try:
+                        session_data = session.get_decoded()
+                        if 'google_access_token' in session_data:
+                            access_token = session_data['google_access_token']
+                            refresh_token = session_data.get('google_refresh_token')
+                            break
+                    except Exception:
+                        continue
+            
+            if access_token:
+                try:
+                    drive_service = GoogleDriveService(access_token=access_token, refresh_token=refresh_token)
+                    
+                    # Only upload if not already uploaded
+                    if not evidence_file.google_drive_file_id and evidence_file.file:
+                        try:
+                            # Read file content
+                            evidence_file.file.open('rb')
+                            file_content = evidence_file.file.read()
+                            evidence_file.file.close()
+                            
+                            # Upload to Google Drive
+                            drive_result = drive_service.upload_file(
+                                file_content=file_content,
+                                filename=evidence_file.filename,
+                                folder_id=category.google_drive_folder_id,
+                                mime_type=evidence_file.mime_type
+                            )
+                            
+                            # Store Google Drive file info
+                            evidence_file.google_drive_file_id = drive_result['file_id']
+                            evidence_file.google_drive_file_url = drive_result['web_url']
+                            evidence_file.save()
+                            uploaded = True
+                        except Exception as e:
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
+                            logger.error(error_msg)
+                            upload_errors.append(error_msg)
+                    elif evidence_file.google_drive_file_id:
+                        uploaded = True  # Already uploaded
+                        
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    error_msg = f"Failed to initialize Google Drive service: {str(e)}"
+                    logger.error(error_msg)
+                    upload_errors.append(error_msg)
+            else:
+                upload_errors.append("Google Drive not authenticated. Please authenticate Google Drive first.")
+        else:
+            upload_errors.append("Google Drive folder not configured for this category.")
+        
+        serializer = EvidenceFileSerializer(evidence_file, context={'request': request})
+        response_data = serializer.data
+        
+        # Add upload status to response
+        if uploaded:
+            response_data['upload_status'] = 'File approved and uploaded to Google Drive successfully.'
+        if upload_errors:
+            response_data['upload_errors'] = upload_errors
+            response_data['upload_warning'] = 'File approved, but could not be uploaded to Google Drive.'
+        
+        return Response(response_data)
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject a file"""
+        evidence_file = self.get_object()
+        
+        if evidence_file.status not in [EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW]:
+            return Response(
+                {'error': 'Only submitted or under review files can be rejected.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        review_notes = request.data.get('review_notes', '')
+        if not review_notes:
+            return Response(
+                {'error': 'Review notes are required for rejection.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        evidence_file.status = EvidenceStatus.REJECTED
+        evidence_file.reviewed_by = request.user if request.user.is_authenticated else None
+        evidence_file.reviewed_at = timezone.now()
+        evidence_file.review_notes = review_notes
+        evidence_file.save()
+        
+        serializer = EvidenceFileSerializer(evidence_file, context={'request': request})
+        return Response(serializer.data)
 
 
 class NotificationViewSet(viewsets.ModelViewSet):
