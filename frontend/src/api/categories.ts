@@ -81,6 +81,10 @@ export interface Submission {
     mime_type: string;
     uploaded_at: string;
     status?: string;
+    uploaded_by?: {
+      id: number;
+      username: string;
+    };
     reviewed_by?: {
       id: number;
       username: string;
@@ -186,10 +190,12 @@ export const categoriesApi = {
     return response.data;
   },
 
-  getGroups: async (showHidden: boolean = false): Promise<CategoryGroup[]> => {
-    const response = await apiClient.get('/categories/groups/', {
-      params: { show_hidden: showHidden },
-    });
+  getGroups: async (showHidden: boolean = false, showAll: boolean = false): Promise<CategoryGroup[]> => {
+    const params: any = { show_hidden: showHidden };
+    if (showAll) {
+      params.show_all = 'true';
+    }
+    const response = await apiClient.get('/categories/groups/', { params });
     return response.data;
   },
 

@@ -116,7 +116,7 @@ class EvidenceCategorySerializer(serializers.ModelSerializer):
             # Serialize the submission
             submission_data = EvidenceSubmissionSerializer(submission, context=self.context).data
             
-            # Filter files to only include those with status SUBMITTED
+            # Filter files to only include those with status SUBMITTED or UNDER_REVIEW
             # Ensure files is always a list (never None or missing)
             files = submission_data.get('files')
             if files is None:
@@ -126,7 +126,7 @@ class EvidenceCategorySerializer(serializers.ModelSerializer):
             
             submission_data['files'] = [
                 file for file in files
-                if file.get('status') == EvidenceStatus.SUBMITTED
+                if file.get('status') in [EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW]
             ]
             
             return submission_data
