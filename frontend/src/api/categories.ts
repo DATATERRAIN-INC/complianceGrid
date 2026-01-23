@@ -175,15 +175,16 @@ export const categoriesApi = {
     await apiClient.delete(`/categories/${id}/`);
   },
 
-  hide: async (id: number): Promise<Category> => {
-    const response = await apiClient.patch(`/categories/${id}/`, { is_active: false });
-    return response.data;
-  },
+  // Hide functionality commented out
+  // hide: async (id: number): Promise<Category> => {
+  //   const response = await apiClient.patch(`/categories/${id}/`, { is_active: false });
+  //   return response.data;
+  // },
 
-  unhide: async (id: number): Promise<Category> => {
-    const response = await apiClient.patch(`/categories/${id}/`, { is_active: true });
-    return response.data;
-  },
+  // unhide: async (id: number): Promise<Category> => {
+  //   const response = await apiClient.patch(`/categories/${id}/`, { is_active: true });
+  //   return response.data;
+  // },
 
   getSubmissions: async (id: number): Promise<Submission[]> => {
     const response = await apiClient.get(`/categories/${id}/submissions/`);

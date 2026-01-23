@@ -121,29 +121,30 @@ export const CategoryDetailPage: React.FC = () => {
     setIsEditing(false);
   };
 
-  const handleHide = async () => {
-    if (!category || !id) return;
-    try {
-      await categoriesApi.hide(parseInt(id));
-      toast.success('Category hidden successfully');
-      navigate('/');
-    } catch (error: any) {
-      console.error('Error hiding category:', error);
-      toast.error(error.response?.data?.error || 'Failed to hide category');
-    }
-  };
+  // Hide functionality commented out
+  // const handleHide = async () => {
+  //   if (!category || !id) return;
+  //   try {
+  //     await categoriesApi.hide(parseInt(id));
+  //     toast.success('Category hidden successfully');
+  //     navigate('/');
+  //   } catch (error: any) {
+  //     console.error('Error hiding category:', error);
+  //     toast.error(error.response?.data?.error || 'Failed to hide category');
+  //   }
+  // };
 
-  const handleUnhide = async () => {
-    if (!category || !id) return;
-    try {
-      await categoriesApi.unhide(parseInt(id));
-      toast.success('Category unhidden successfully');
-      fetchCategoryDetail();
-    } catch (error: any) {
-      console.error('Error unhiding category:', error);
-      toast.error(error.response?.data?.error || 'Failed to unhide category');
-    }
-  };
+  // const handleUnhide = async () => {
+  //   if (!category || !id) return;
+  //   try {
+  //     await categoriesApi.unhide(parseInt(id));
+  //     toast.success('Category unhidden successfully');
+  //     fetchCategoryDetail();
+  //   } catch (error: any) {
+  //     console.error('Error unhiding category:', error);
+  //     toast.error(error.response?.data?.error || 'Failed to unhide category');
+  //   }
+  // };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -496,7 +497,8 @@ export const CategoryDetailPage: React.FC = () => {
                 <Edit size={18} className="mr-2" />
                 Edit
               </Button>
-              {category.is_active ? (
+              {/* Hide functionality commented out */}
+              {/* {category.is_active ? (
                 <Button variant="secondary" onClick={handleHide}>
                   <EyeOff size={18} className="mr-2" />
                   Hide
@@ -506,7 +508,7 @@ export const CategoryDetailPage: React.FC = () => {
                   <Eye size={18} className="mr-2" />
                   Unhide
                 </Button>
-              )}
+              )} */}
             </div>
           )}
         </div>

@@ -25,7 +25,7 @@ export const CategoriesPage: React.FC = () => {
   const [pageSize, setPageSize] = useState(20);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [showHidden, setShowHidden] = useState(false);
+  // const [showHidden, setShowHidden] = useState(false); // Hide functionality commented out
   const [showAllCategories, setShowAllCategories] = useState(false);
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
   const assigneeDropdownRef = useRef<HTMLDivElement>(null);
@@ -77,12 +77,12 @@ export const CategoriesPage: React.FC = () => {
   useEffect(() => {
     // Reset to page 1 when filters change
     setCurrentPage(1);
-  }, [searchQuery, reviewPeriodFilter, statusFilter, assigneeFilter, showHidden, pageSize, groupFilter]);
+  }, [searchQuery, reviewPeriodFilter, statusFilter, assigneeFilter, /* showHidden, */ pageSize, groupFilter]);
 
   useEffect(() => {
     // Refetch categories when filters or pagination change
     fetchCategories();
-  }, [searchQuery, reviewPeriodFilter, statusFilter, assigneeFilter, currentPage, pageSize, showHidden, groupFilter, showAllCategories]);
+  }, [searchQuery, reviewPeriodFilter, statusFilter, assigneeFilter, currentPage, pageSize, /* showHidden, */ groupFilter, showAllCategories]);
 
   useEffect(() => {
     // Save view preference to localStorage
@@ -114,13 +114,13 @@ export const CategoriesPage: React.FC = () => {
     try {
       setLoading(true);
       const response = await categoriesApi.getAll(
-        !showHidden,
+        true, // activeOnly - always show active categories
         searchQuery,
         reviewPeriodFilter,
         statusFilter,
         currentPage,
         pageSize,
-        showHidden,
+        false, // showHidden - always false (hide functionality commented out)
         groupFilter,
         assigneeFilter,
         showAllCategories
@@ -549,8 +549,8 @@ export const CategoriesPage: React.FC = () => {
             />
           </div>
 
-          {/* Show Hidden Toggle */}
-          <button
+          {/* Show Hidden Toggle - COMMENTED OUT */}
+          {/* <button
             onClick={() => setShowHidden(!showHidden)}
             className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg transition-all font-medium ${
               showHidden
@@ -561,7 +561,7 @@ export const CategoriesPage: React.FC = () => {
           >
             {showHidden ? <EyeOff size={18} /> : <Eye size={18} />}
             <span className="text-sm">{showHidden ? 'Show Active' : 'Show Hidden'}</span>
-          </button>
+          </button> */}
 
           {/* Filter Toggle Button */}
           <button
