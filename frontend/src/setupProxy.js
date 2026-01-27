@@ -4,7 +4,7 @@ module.exports = function(app) {
   app.use(
     '/api',
     createProxyMiddleware({
-      target: 'http://localhost:8000',
+      target: 'https://compliancegrid-backend.dataterrain-demo.net',
       changeOrigin: true,
       secure: false,
       logLevel: 'debug',
@@ -22,7 +22,7 @@ module.exports = function(app) {
       },
       onProxyReq: (proxyReq, req, res) => {
         const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-        const fullUrl = `http://localhost:8000${proxyReq.path}${queryString}`;
+        const fullUrl = `https://compliancegrid-backend.dataterrain-demo.net${proxyReq.path}${queryString}`;
         console.log(`[PROXY] Forwarding: ${req.method} ${req.originalUrl || req.url} -> ${fullUrl}`);
       },
       onProxyRes: (proxyRes, req, res) => {
