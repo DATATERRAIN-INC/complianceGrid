@@ -859,11 +859,23 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         notes = request.data.get('notes', '')
         due_date_str = request.data.get('due_date')
         
+        # Check if current user is the approver
+        is_approver = request.user.is_authenticated and category.approver and request.user.id == category.approver.id
+        
         # Save files locally (Google Drive upload will happen after approval)
         try:
             uploaded_files = []
+            upload_errors = []
             
             for file in files:
+                # Determine file status based on who is uploading
+                if is_approver:
+                    # If approver uploads, automatically approve the file
+                    file_status = EvidenceStatus.APPROVED
+                else:
+                    # If assignee uploads, file needs approval
+                    file_status = EvidenceStatus.SUBMITTED
+                
                 # Create EvidenceFile record with local file storage only
                 evidence_file = EvidenceFile.objects.create(
                     submission=submission,
@@ -872,18 +884,90 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                     file_size=file.size,
                     mime_type=file.content_type or 'application/octet-stream',
                     uploaded_by=request.user if request.user.is_authenticated else None,
-                    submission_notes=notes  # Save notes to each file
+                    submission_notes=notes,  # Save notes to each file
+                    status=file_status
                 )
+                
+                # If approver uploaded, automatically approve and upload to Google Drive
+                if is_approver:
+                    evidence_file.reviewed_by = request.user if request.user.is_authenticated else None
+                    evidence_file.reviewed_at = timezone.now()
+                    evidence_file.review_notes = ''  # No review notes needed for auto-approved files
+                    evidence_file.save()
+                    
+                    # Upload to Google Drive immediately
+                    if category.google_drive_folder_id:
+                        access_token = request.session.get('google_access_token')
+                        refresh_token = request.session.get('google_refresh_token')
+                        
+                        if not access_token:
+                            # Try to get token from any user's session
+                            from django.contrib.sessions.models import Session
+                            recent_sessions = Session.objects.filter(expire_date__gte=timezone.now())
+                            for session in recent_sessions:
+                                try:
+                                    session_data = session.get_decoded()
+                                    if 'google_access_token' in session_data:
+                                        access_token = session_data['google_access_token']
+                                        refresh_token = session_data.get('google_refresh_token')
+                                        break
+                                except Exception:
+                                    continue
+                        
+                        if access_token:
+                            try:
+                                drive_service = GoogleDriveService(access_token=access_token, refresh_token=refresh_token)
+                                
+                                # Only upload if not already uploaded
+                                if not evidence_file.google_drive_file_id and evidence_file.file:
+                                    try:
+                                        # Read file content
+                                        evidence_file.file.open('rb')
+                                        file_content = evidence_file.file.read()
+                                        evidence_file.file.close()
+                                        
+                                        # Upload to Google Drive
+                                        drive_result = drive_service.upload_file(
+                                            file_content=file_content,
+                                            filename=evidence_file.filename,
+                                            folder_id=category.google_drive_folder_id,
+                                            mime_type=evidence_file.mime_type
+                                        )
+                                        
+                                        # Store Google Drive file info
+                                        evidence_file.google_drive_file_id = drive_result['file_id']
+                                        evidence_file.google_drive_file_url = drive_result['web_url']
+                                        evidence_file.save()
+                                    except Exception as e:
+                                        import logging
+                                        logger = logging.getLogger(__name__)
+                                        error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
+                                        logger.error(error_msg)
+                                        upload_errors.append(error_msg)
+                            except Exception as e:
+                                import logging
+                                logger = logging.getLogger(__name__)
+                                error_msg = f"Failed to initialize Google Drive service: {str(e)}"
+                                logger.error(error_msg)
+                                upload_errors.append(error_msg)
                 
                 uploaded_files.append(evidence_file)
             
             # Update submission
-            # Only change status to SUBMITTED if it was PENDING or REJECTED
-            # If already SUBMITTED or UNDER_REVIEW, keep the current status
-            if submission.status in [EvidenceStatus.PENDING, EvidenceStatus.REJECTED]:
-                submission.status = EvidenceStatus.SUBMITTED
-                submission.submitted_by = request.user if request.user.is_authenticated else None
-                submission.submitted_at = timezone.now()
+            # Only change status to SUBMITTED if it was PENDING or REJECTED and not approver upload
+            # If approver uploads, keep current status or set to APPROVED if all files are approved
+            if not is_approver:
+                if submission.status in [EvidenceStatus.PENDING, EvidenceStatus.REJECTED]:
+                    submission.status = EvidenceStatus.SUBMITTED
+                    submission.submitted_by = request.user if request.user.is_authenticated else None
+                    submission.submitted_at = timezone.now()
+            else:
+                # If approver uploads, check if all files are approved
+                all_files_approved = all(f.status == EvidenceStatus.APPROVED for f in submission.files.all())
+                if all_files_approved and submission.status in [EvidenceStatus.PENDING, EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW]:
+                    submission.status = EvidenceStatus.APPROVED
+                    submission.reviewed_by = request.user if request.user.is_authenticated else None
+                    submission.reviewed_at = timezone.now()
             
             # Update submission notes if provided
             if notes:
@@ -900,8 +984,8 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
             
             submission.save()
             
-            # Send notification to approver
-            if category.approver:
+            # Send notification to approver only if assignee uploaded (not approver)
+            if category.approver and not is_approver:
                 Notification.objects.create(
                     user=category.approver,
                     notification_type='PENDING_APPROVAL',
@@ -913,7 +997,16 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                 )
             
             serializer = EvidenceSubmissionSerializer(submission, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            response_data = serializer.data
+            
+            # If approver uploaded, add upload status information
+            if is_approver and upload_errors:
+                response_data['upload_errors'] = upload_errors
+                response_data['upload_warning'] = 'Files approved, but some could not be uploaded to Google Drive.'
+            elif is_approver:
+                response_data['upload_status'] = 'Files approved and uploaded to Google Drive successfully.'
+            
+            return Response(response_data, status=status.HTTP_200_OK)
             
         except Exception as e:
             return Response(

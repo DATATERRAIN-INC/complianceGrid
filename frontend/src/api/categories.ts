@@ -83,6 +83,10 @@ export interface Submission {
     mime_type: string;
     uploaded_at: string;
     status?: string;
+    uploaded_by?: {
+      id: number;
+      username: string;
+    };
     reviewed_by?: {
       id: number;
       username: string;

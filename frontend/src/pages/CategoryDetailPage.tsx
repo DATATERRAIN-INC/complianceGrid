@@ -567,7 +567,8 @@ export const CategoryDetailPage: React.FC = () => {
       </div>
 
       {/* Upload Section */}
-      {canSubmit && !isEditing && !isApprover && (
+      {/* {canSubmit && !isEditing && !isApprover && ( */}
+        {!isEditing && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Submit Evidence</h2>
 
@@ -755,7 +756,7 @@ export const CategoryDetailPage: React.FC = () => {
                           </span>
                         </div>
                         <span className="text-xs text-gray-500">
-                          Uploaded: {new Date(file.uploaded_at).toLocaleDateString()}
+                          Uploaded At: {new Date(file.uploaded_at).toLocaleDateString()}
                           {(file as any).reviewed_at && (
                             <> | Reviewed: {new Date((file as any).reviewed_at).toLocaleDateString()}</>
                           )}
@@ -875,14 +876,14 @@ export const CategoryDetailPage: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  {/* <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                     submission.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
                     submission.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
                     submission.status === 'SUBMITTED' ? 'bg-blue-100 text-blue-800' :
                     'bg-yellow-100 text-yellow-800'
                   }`}>
                     {submission.status}
-                  </span>
+                  </span> */}
                 </div>
                 {submission.files && submission.files.length > 0 && (
                   <div className="mt-2">
@@ -892,6 +893,7 @@ export const CategoryDetailPage: React.FC = () => {
                         const fileStatus = (file as any).status || 'SUBMITTED';
                         return (
                           <div key={file.id} className="pl-2 border-l-2 border-gray-200">
+                            <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 mb-1">
                               <a
                                 href={file.file_url || file.google_drive_file_url || '#'}
@@ -901,14 +903,23 @@ export const CategoryDetailPage: React.FC = () => {
                               >
                                 {file.filename}
                               </a>
-                              <span className={`px-2 py-0.5 rounded-full text-sm font-medium ${
+                              <span className="text-sm text-gray-500">
+                                Uploaded At: {new Date(file.uploaded_at).toLocaleDateString()}
+                              </span>
+                              {file.uploaded_by && (
+                                <span className="text-xs text-gray-700 ml-2 capitalize">
+                                  by {file.uploaded_by.username}
+                                </span>
+                              )}
+                            </div>
+                            <span className={`px-2 py-0.5 rounded-full text-sm font-medium ${
                                 fileStatus === 'APPROVED' ? 'bg-green-100 text-green-800' :
                                 fileStatus === 'REJECTED' ? 'bg-red-100 text-red-800' :
                                 'bg-yellow-100 text-yellow-800'
                               }`}>
                                 {fileStatus}
                               </span>
-                            </div>
+                              </div>
                             {(file as any).submission_notes && (
                               <div className="text-sm text-gray-600 mt-1 ml-0">
                                 <span className="font-medium">Submission Notes:</span>{' '}
