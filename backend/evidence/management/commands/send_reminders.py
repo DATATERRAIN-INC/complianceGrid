@@ -12,16 +12,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         today = timezone.now().date()
         
-        # 7-day reminders
-        self.send_reminders(today + timedelta(days=7), '7_days')
-        
-        # 3-day reminders
-        self.send_reminders(today + timedelta(days=3), '3_days')
-        
-        # 1-day reminders
+        # 1-day reminders (1 day before due date)
         self.send_reminders(today + timedelta(days=1), '1_day')
         
-        # Overdue reminders
+        # Overdue reminders (1 day after due date)
         self.send_overdue_reminders(today)
         
         # Due date notifications (in-app notifications for assignees on due date)
@@ -33,7 +27,7 @@ class Command(BaseCommand):
         submissions = EvidenceSubmission.objects.filter(
             due_date=due_date,
             status=EvidenceStatus.PENDING
-        ).select_related('category', 'submitted_by')
+        ).select_related('category', 'category__assignee', 'submitted_by')
         
         for submission in submissions:
             # Check if reminder already sent today
@@ -44,54 +38,76 @@ class Command(BaseCommand):
             ).exists():
                 continue
             
-            # If no submitted_by, skip (shouldn't happen but safety check)
-            if not submission.submitted_by:
+            # Get recipient: prioritize assignee, fallback to submitted_by
+            recipient = submission.category.assignee
+            if not recipient:
+                recipient = submission.submitted_by
+            if not recipient:
                 # Try to get from category assigned reviewers
                 reviewers = submission.category.assigned_reviewers.all()
                 if reviewers.exists():
-                    submission.submitted_by = reviewers.first()
+                    recipient = reviewers.first()
                 else:
+                    self.stdout.write(self.style.WARNING(f"No assignee or submitted_by for submission {submission.id}"))
                     continue
             
-            self.send_email(submission, reminder_type)
+            self.send_email(submission, reminder_type, recipient)
 
     def send_overdue_reminders(self, today):
+        # Only send reminders for submissions that are exactly 1 day overdue
+        # (due_date + 1 day = today)
+        one_day_ago = today - timedelta(days=1)
+        
         submissions = EvidenceSubmission.objects.filter(
-            due_date__lt=today,
+            due_date=one_day_ago,
             status=EvidenceStatus.PENDING
-        ).select_related('category', 'submitted_by')
+        ).select_related('category', 'category__assignee', 'submitted_by')
         
         for submission in submissions:
-            # Send overdue reminder once per day
+            # Check if overdue reminder already sent for this submission
             if ReminderLog.objects.filter(
                 submission=submission,
-                reminder_type='overdue',
-                sent_at__date=timezone.now().date()
+                reminder_type='overdue'
             ).exists():
                 continue
             
-            # If no submitted_by, try to get from category assigned reviewers
-            if not submission.submitted_by:
+            # Get recipient: prioritize assignee, fallback to submitted_by
+            recipient = submission.category.assignee
+            if not recipient:
+                recipient = submission.submitted_by
+            if not recipient:
                 reviewers = submission.category.assigned_reviewers.all()
                 if reviewers.exists():
-                    submission.submitted_by = reviewers.first()
+                    recipient = reviewers.first()
                 else:
+                    self.stdout.write(self.style.WARNING(f"No assignee or submitted_by for submission {submission.id}"))
                     continue
             
-            self.send_email(submission, 'overdue')
+            self.send_email(submission, 'overdue', recipient)
 
-    def send_email(self, submission, reminder_type):
-        days_map = {
-            '7_days': '7 days',
-            '3_days': '3 days',
-            '1_day': '1 day',
-            'overdue': 'OVERDUE'
-        }
-        
-        subject = f"Evidence Submission Reminder: {submission.category.name}"
-        message = f"""Hello,
+    def send_email(self, submission, reminder_type, recipient):
+        if reminder_type == 'overdue':
+            subject = f"OVERDUE: Evidence Submission Required - {submission.category.name}"
+            message = f"""Hello {recipient.first_name or recipient.username},
 
-This is a reminder that your evidence submission for "{submission.category.name}" is due in {days_map[reminder_type]}.
+This is a reminder that your evidence submission for "{submission.category.name}" is now OVERDUE.
+
+Due Date: {submission.due_date} (1 day ago)
+Period: {submission.period_start_date} to {submission.period_end_date}
+
+Evidence Requirements:
+{submission.category.evidence_requirements}
+
+Please submit your evidence immediately.
+
+Best regards,
+ComplianceGrid System
+"""
+        else:
+            subject = f"Evidence Submission Reminder: {submission.category.name}"
+            message = f"""Hello {recipient.first_name or recipient.username},
+
+This is a reminder that your evidence submission for "{submission.category.name}" is due in 1 day.
 
 Due Date: {submission.due_date}
 Period: {submission.period_start_date} to {submission.period_end_date}
@@ -106,25 +122,25 @@ ComplianceGrid System
 """
         
         try:
-            if submission.submitted_by and submission.submitted_by.email:
+            if recipient and recipient.email:
                 send_mail(
                     subject,
                     message,
                     settings.DEFAULT_FROM_EMAIL,
-                    [submission.submitted_by.email],
+                    [recipient.email],
                     fail_silently=False,
                 )
                 
                 ReminderLog.objects.create(
                     submission=submission,
                     reminder_type=reminder_type,
-                    sent_to=submission.submitted_by,
+                    sent_to=recipient,
                     email_sent=True
                 )
                 
-                self.stdout.write(f"Sent {reminder_type} reminder for {submission.category.name} to {submission.submitted_by.email}")
+                self.stdout.write(f"Sent {reminder_type} reminder for {submission.category.name} to {recipient.email}")
             else:
-                self.stdout.write(self.style.WARNING(f"No email address for submission {submission.id}"))
+                self.stdout.write(self.style.WARNING(f"No email address for recipient {recipient.username} (submission {submission.id})"))
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Failed to send email: {str(e)}"))
     

@@ -160,15 +160,28 @@ REST_FRAMEWORK = {
 # For session auth with DRF, we still need CSRF, but we'll handle it via trusted origins
 
 # CORS settings
+# Add your frontend production URL here if different from backend domain
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "https://compliancegrid-backend.dataterrain-demo.net",
+    # Add your frontend production URL here, e.g.:
+    # "https://compliancegrid-frontend.dataterrain-demo.net",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Explicitly allow HTTP methods
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
 
 # Additional CORS settings for better compatibility
 CORS_ALLOW_HEADERS = [
