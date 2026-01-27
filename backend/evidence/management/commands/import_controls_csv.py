@@ -28,49 +28,33 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f'CSV file not found: {csv_file}'))
             return
 
-                        # Duration mapping - map CSV values to ReviewPeriod choices
+        # Duration mapping - map CSV values to ReviewPeriod choices
+        # Only accepts: Daily, Weekly, Monthly, Quarterly, Half Yearly, Annually (case-insensitive)
         duration_map = {
             'Daily': ReviewPeriod.DAILY,
             'daily': ReviewPeriod.DAILY,
-            'Daily/Weekly': ReviewPeriod.DAILY_WEEKLY,
-            'daily/weekly': ReviewPeriod.DAILY_WEEKLY,
-            'Daily / Weekly': ReviewPeriod.DAILY_WEEKLY,
             'Weekly': ReviewPeriod.WEEKLY,
             'weekly': ReviewPeriod.WEEKLY,
-            'Weekly/Monthly': ReviewPeriod.WEEKLY_MONTHLY,
-            'weekly/monthly': ReviewPeriod.WEEKLY_MONTHLY,
-            'Weekly / Monthly': ReviewPeriod.WEEKLY_MONTHLY,
             'Monthly': ReviewPeriod.MONTHLY,
             'monthly': ReviewPeriod.MONTHLY,
-            'Regular': ReviewPeriod.REGULAR,
-            'regular': ReviewPeriod.REGULAR,
-            'Regular - meeting monthly': ReviewPeriod.REGULAR_MONTHLY,
-            'regular - meeting monthly': ReviewPeriod.REGULAR_MONTHLY,
-            'Monthly/Quarterly': ReviewPeriod.MONTHLY_QUARTERLY,
-            'monthly/quarterly': ReviewPeriod.MONTHLY_QUARTERLY,
-            'Monthly / Quarterly': ReviewPeriod.MONTHLY_QUARTERLY,
             'Quarterly': ReviewPeriod.QUARTERLY,
             'quarterly': ReviewPeriod.QUARTERLY,
-            'Half yearly/Quarterly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
-            'Half Yearly/Quarterly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
-            'Half Yearly / Quarterly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
-            'half yearly/quarterly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
-            'Half yearly/Quarterly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
-            'Quarterly/Halfyearly/Annually': ReviewPeriod.QUARTERLY_HALFYEARLY_ANNUALLY,
-            'Quarterly / Halfyearly / Annually': ReviewPeriod.QUARTERLY_HALFYEARLY_ANNUALLY,
-            'quarterly/halfyearly/annually': ReviewPeriod.QUARTERLY_HALFYEARLY_ANNUALLY,
-            'Quarterly/Halfyearly/Annually': ReviewPeriod.QUARTERLY_HALFYEARLY_ANNUALLY,
-            'Quarterly / Halfyearly / Annually': ReviewPeriod.QUARTERLY_HALFYEARLY_ANNUALLY,
+            'Half Yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
+            'half yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
             'Annually': ReviewPeriod.ANNUALLY,
             'annually': ReviewPeriod.ANNUALLY,
-            # Additional variations from CSV
-            'Half yearly/Quarterly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
-            'Quarterly/Halfyearly/Annually': ReviewPeriod.QUARTERLY_HALFYEARLY_ANNUALLY,
         }
 
         created_count = 0
         updated_count = 0
         error_count = 0
+
+        # Get default approver (Manoj)
+        default_approver = None
+        try:
+            default_approver = User.objects.get(username='manoj')
+        except User.DoesNotExist:
+            self.stdout.write(self.style.WARNING("User 'manoj' not found. Controls will be created without approver."))
 
         # Create or get users for assigned personnel
         user_map = {}
@@ -112,14 +96,15 @@ class Command(BaseCommand):
                             self.stdout.write(self.style.WARNING(f'Row {row_num}: Skipping - no name found'))
                             continue
                         
-                        # Map duration - if empty, try to infer from duration_map or default to REGULAR
+                        # Map duration - only accepts: Daily, Weekly, Monthly, Quarterly, Half Yearly, Annually
                         duration_clean = duration.strip() if duration else ''
-                        review_period = ReviewPeriod.REGULAR  # Default
+                        review_period = ReviewPeriod.MONTHLY  # Default to Monthly
                         if duration_clean:
-                            review_period = duration_map.get(duration_clean, ReviewPeriod.REGULAR)
-                        elif duration_clean == '':
-                            # Empty duration means it's Regular/ongoing
-                            review_period = ReviewPeriod.REGULAR
+                            # Case-insensitive lookup - try exact match first, then lowercase
+                            review_period = duration_map.get(duration_clean) or duration_map.get(duration_clean.lower()) or ReviewPeriod.MONTHLY
+                        else:
+                            # Empty duration defaults to Monthly
+                            review_period = ReviewPeriod.MONTHLY
                         
                         # Combine description and evidence requirements
                         description = to_do.strip() if to_do else name
@@ -133,8 +118,14 @@ class Command(BaseCommand):
                                 'evidence_requirements': evidence_requirements,
                                 'review_period': review_period,
                                 'is_active': True,
+                                'approver': default_approver,
                             }
                         )
+                        
+                        # Set approver to Manoj if not already set (for existing categories)
+                        if not created and not category.approver and default_approver:
+                            category.approver = default_approver
+                            category.save()
                         
                         # Update assignee if provided
                         if assigned_str and assigned_str.strip():

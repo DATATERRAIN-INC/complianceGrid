@@ -62,11 +62,13 @@ export interface Submission {
   submitted_by?: {
     id: number;
     username: string;
+    first_name?: string;
   };
   submitted_at?: string;
   reviewed_by?: {
     id: number;
     username: string;
+    first_name?: string;
   };
   reviewed_at?: string;
   submission_notes: string;
@@ -84,6 +86,7 @@ export interface Submission {
     reviewed_by?: {
       id: number;
       username: string;
+      first_name?: string;
     };
     reviewed_at?: string;
     review_notes?: string;
@@ -94,6 +97,7 @@ export interface Submission {
     user: {
       id: number;
       username: string;
+      first_name?: string;
     };
     comment: string;
     created_at: string;

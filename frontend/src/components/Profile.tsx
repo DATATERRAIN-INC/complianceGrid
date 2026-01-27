@@ -130,9 +130,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onLogout, onUserUpdate }
     }
   };
 
-  const fullName = user.first_name && user.last_name 
-    ? `${user.first_name} ${user.last_name}` 
-    : user.first_name || user.last_name || user.username;
+  const fullName = user.first_name || user.username;
 
   return (
     <>

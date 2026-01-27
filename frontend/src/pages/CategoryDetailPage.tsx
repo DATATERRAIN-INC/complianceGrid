@@ -437,9 +437,7 @@ export const CategoryDetailPage: React.FC = () => {
                     <option value="">Not assigned</option>
                     {users.map((user) => (
                       <option key={user.id} value={user.id}>
-                        {user.first_name && user.last_name 
-                          ? `${user.first_name} ${user.last_name}`.trim()
-                          : user.first_name || user.last_name || user.username}
+                        {user.first_name || user.username}
                       </option>
                     ))}
                   </select>
@@ -456,9 +454,7 @@ export const CategoryDetailPage: React.FC = () => {
                     <option value="">Not assigned</option>
                     {users.map((user) => (
                       <option key={user.id} value={user.id}>
-                        {user.first_name && user.last_name 
-                          ? `${user.first_name} ${user.last_name}`.trim()
-                          : user.first_name || user.last_name || user.username}
+                        {user.first_name || user.username}
                       </option>
                     ))}
                   </select>
@@ -545,9 +541,7 @@ export const CategoryDetailPage: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <User size={16} className="text-gray-400" />
                     <p className="font-semibold text-gray-900">
-                      {category.assignee.first_name && category.assignee.last_name 
-                        ? `${category.assignee.first_name} ${category.assignee.last_name}`.trim()
-                        : category.assignee.first_name || category.assignee.last_name || category.assignee.username}
+                      {category.assignee.first_name || category.assignee.username}
                     </p>
                   </div>
                 ) : (
@@ -560,9 +554,7 @@ export const CategoryDetailPage: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <User size={16} className="text-gray-400" />
                     <p className="font-semibold text-gray-900">
-                      {category.approver.first_name && category.approver.last_name 
-                        ? `${category.approver.first_name} ${category.approver.last_name}`.trim()
-                        : category.approver.first_name || category.approver.last_name || category.approver.username}
+                      {category.approver.first_name || category.approver.username}
                     </p>
                   </div>
                 ) : (
@@ -879,7 +871,7 @@ export const CategoryDetailPage: React.FC = () => {
                     </span>
                     {submission.submitted_by && (
                       <span className="text-xs text-gray-700 ml-2 capitalize">
-                        by {submission.submitted_by.username}
+                        by {submission.submitted_by.first_name || submission.submitted_by.username}
                       </span>
                     )}
                   </div>
@@ -961,7 +953,7 @@ export const CategoryDetailPage: React.FC = () => {
                 >
                   <div className="flex justify-between mb-1">
                     <span className="font-medium text-sm">
-                      {comment.user.username}
+                      {comment.user.first_name || comment.user.username}
                     </span>
                     <span className="text-xs text-gray-500">
                       {new Date(comment.created_at).toLocaleDateString()}

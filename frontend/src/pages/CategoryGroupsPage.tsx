@@ -17,6 +17,7 @@ export const CategoryGroupsPage: React.FC = () => {
     availability: true,
     confidentiality: true,
     commonCriteria: true,
+    uncategorized: true,
   });
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [creatingFolders, setCreatingFolders] = useState(false);
@@ -50,8 +51,8 @@ export const CategoryGroupsPage: React.FC = () => {
     try {
       setLoading(true);
       const data = await categoriesApi.getGroups(false, showAllGroups);
-      // Filter out uncategorized and groups with 0 count
-      const filtered = data.filter(g => g.code !== 'UNCATEGORIZED' && g.count > 0);
+      // Filter out groups with 0 count (but keep UNCATEGORIZED if it has controls)
+      const filtered = data.filter(g => g.count > 0);
       setGroups(filtered);
     } catch (error) {
       console.error('Error fetching groups:', error);
@@ -262,6 +263,9 @@ export const CategoryGroupsPage: React.FC = () => {
     ['CONTROL_ENVIRONMENT', 'COMMUNICATION_INFO', 'RISK_ASSESSMENT', 'MONITORING',
      'HR_TRAINING', 'CHANGE_MANAGEMENT', 'VENDOR_MANAGEMENT'].includes(g.code)
   );
+  const uncategorizedGroups = groups.filter(g => 
+    g.code === 'UNCATEGORIZED'
+  );
 
   return (
     <div className="container mx-auto p-6">
@@ -281,7 +285,7 @@ export const CategoryGroupsPage: React.FC = () => {
             className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all font-medium  ${showAllGroups ? "bg-blue-500 text-white border-blue-500 hover:bg-blue-600" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-gray-400"}`}
           >
             <ListFilter size={18} />
-            <span className="text-sm">{showAllGroups ? 'Show Assigned Groups' : 'View All Groups'}</span>
+            <span className="text-sm">{showAllGroups ? 'My Categories' : 'All Categories'}</span>
           </button>
           {!isGoogleAuthenticated && (
             <Button
@@ -430,6 +434,28 @@ export const CategoryGroupsPage: React.FC = () => {
           {expandedSections.commonCriteria && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-300">
               {commonCriteriaGroups.map((group, index) => renderGroupRow(group, index, commonCriteriaGroups.length, 'text-orange-500', 'hover:bg-orange-50'))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Uncategorized */}
+      {uncategorizedGroups.length > 0 && (
+        <div className="mb-6">
+          <button
+            onClick={() => toggleSection('uncategorized')}
+            className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors mb-2"
+          >
+            <h2 className="text-xl font-bold text-gray-900">Uncategorized</h2>
+            {expandedSections.uncategorized ? (
+              <ChevronUp className="text-gray-600" size={20} />
+            ) : (
+              <ChevronDown className="text-gray-600" size={20} />
+            )}
+          </button>
+          {expandedSections.uncategorized && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-300">
+              {uncategorizedGroups.map((group, index) => renderGroupRow(group, index, uncategorizedGroups.length, 'text-gray-500', 'hover:bg-gray-50'))}
             </div>
           )}
         </div>

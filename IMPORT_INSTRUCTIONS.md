@@ -22,14 +22,15 @@ Signed NDA,Regular,Non-Disclosure Agreement management,Employee handbook and ack
 ISMS Policy,Annually,Information Security Management System policy,Policy documentation and acknowledgements,Monisa
 ```
 
-### Duration Values Supported:
-- `Regular` → Monthly
-- `Annually` → Quarterly
-- `Monthly` → Monthly
+### Duration Values Supported (case-insensitive):
+- `Daily` → Daily
 - `Weekly` → Weekly
-- `Half Yearly/Quarterly` → Quarterly
-- `Daily/Weekly` → Weekly
+- `Monthly` → Monthly
 - `Quarterly` → Quarterly
+- `Half Yearly` → Half Yearly/Quarterly
+- `Annually` → Annually
+
+**Note:** Only these 6 values are accepted. Any other values will default to Monthly.
 
 ## Step 2: Save Your CSV File
 

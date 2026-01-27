@@ -13,7 +13,7 @@ export const DocumentsPage: React.FC = () => {
   const [dateTo, setDateTo] = useState<string>('');
   const [uploadedByFilter, setUploadedByFilter] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
-  const [allUsers, setAllUsers] = useState<Array<{ id: number; username: string; email: string }>>([]);
+  const [allUsers, setAllUsers] = useState<Array<{ id: number; username: string; email: string; first_name?: string }>>([]);
   const [allCategories, setAllCategories] = useState<Category[]>([]);
 
   useEffect(() => {
@@ -161,7 +161,7 @@ export const DocumentsPage: React.FC = () => {
                 <option value="">All Users</option>
                 {allUsers.map((user) => (
                   <option key={user.id} value={user.id.toString()}>
-                    {user.username} ({user.email})
+                    {user.first_name || user.username} ({user.email})
                   </option>
                 ))}
               </select>
@@ -216,7 +216,7 @@ export const DocumentsPage: React.FC = () => {
                     <div className="flex items-center gap-2 mb-4">
                       <User className="text-gray-500" size={18} />
                       <h3 className="font-medium text-gray-900">
-                        {userGroup.user.username}
+                        {(userGroup.user as { first_name?: string; username: string }).first_name || userGroup.user.username}
                         {userGroup.user.email && (
                           <span className="text-gray-500 text-sm ml-2">
                             ({userGroup.user.email})

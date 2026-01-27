@@ -172,7 +172,7 @@ function AppContent() {
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                     }`}
                   >
-                    All Controls
+                    My Controls
                   </Link>
                   <Link
                     to="/documents"

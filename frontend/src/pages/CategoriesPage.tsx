@@ -10,16 +10,22 @@ type ViewMode = 'card' | 'list' | 'table';
 export const CategoriesPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const groupFilter = searchParams.get('group') || '';
+  const statusFromUrl = searchParams.get('status') || '';
   const [categories, setCategories] = useState<Category[]>([]);
   const [filteredCategories, setFilteredCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchInput, setSearchInput] = useState(''); // Input value from the user
   const [searchQuery, setSearchQuery] = useState(''); // Debounced search query for API
   const [reviewPeriodFilter, setReviewPeriodFilter] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>(statusFromUrl);
   const [assigneeFilter, setAssigneeFilter] = useState<string>('');
   const [users, setUsers] = useState<Array<{ id: number; username: string; email: string; first_name: string; last_name: string }>>([]);
   const [showFilters, setShowFilters] = useState(false);
+  // Column filters for table view
+  const [tableNameFilter, setTableNameFilter] = useState<string>('');
+  const [tableReviewPeriodFilter, setTableReviewPeriodFilter] = useState<string>('');
+  const [tableStatusFilter, setTableStatusFilter] = useState<string>('');
+  const [tableAssigneeFilter, setTableAssigneeFilter] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -44,6 +50,13 @@ export const CategoriesPage: React.FC = () => {
     fetchUsers();
     fetchCategories();
   }, []);
+  
+  // Set status filter from URL when it changes
+  useEffect(() => {
+    if (statusFromUrl) {
+      setStatusFilter(statusFromUrl);
+    }
+  }, [statusFromUrl]);
 
   const fetchUsers = async () => {
     try {
@@ -141,7 +154,34 @@ export const CategoriesPage: React.FC = () => {
   };
 
   const filterCategories = () => {
-    setFilteredCategories(categories);
+    let filtered = [...categories];
+    
+    // Apply table column filters if in table view
+    if (viewMode === 'table') {
+      if (tableNameFilter) {
+        filtered = filtered.filter(cat => 
+          cat.name.toLowerCase().includes(tableNameFilter.toLowerCase())
+        );
+      }
+      if (tableReviewPeriodFilter) {
+        filtered = filtered.filter(cat => 
+          cat.review_period === tableReviewPeriodFilter
+        );
+      }
+      if (tableStatusFilter) {
+        filtered = filtered.filter(cat => {
+          const status = cat.current_submission?.status || 'PENDING';
+          return status === tableStatusFilter;
+        });
+      }
+      if (tableAssigneeFilter) {
+        filtered = filtered.filter(cat => 
+          cat.assignee?.id.toString() === tableAssigneeFilter
+        );
+      }
+    }
+    
+    setFilteredCategories(filtered);
   };
 
   const clearFilters = () => {
@@ -151,6 +191,11 @@ export const CategoriesPage: React.FC = () => {
     setStatusFilter('');
     setAssigneeFilter('');
     setShowAllCategories(false);
+    // Clear table column filters
+    setTableNameFilter('');
+    setTableReviewPeriodFilter('');
+    setTableStatusFilter('');
+    setTableAssigneeFilter('');
   };
 
   const handlePageSizeChange = (newSize: number) => {
@@ -254,9 +299,7 @@ export const CategoriesPage: React.FC = () => {
                     Assignee:
                   </span>
                   <span className="font-semibold text-gray-900">
-                    {category.assignee ? (category.assignee.first_name && category.assignee.last_name 
-                      ? `${category.assignee.first_name} ${category.assignee.last_name}`.trim()
-                      : category.assignee.first_name || category.assignee.last_name || category.assignee.username) : 'Not assigned'}
+                    {category.assignee ? (category.assignee.first_name || category.assignee.username) : 'Not assigned'}
                   </span>
                 </div>
 
@@ -315,9 +358,7 @@ export const CategoriesPage: React.FC = () => {
                       <User size={16} className="text-gray-400" />
                       <span className="text-gray-500">Assignee:</span>
                       <span className="font-semibold text-gray-900">
-                        {category.assignee ? (category.assignee.first_name && category.assignee.last_name 
-                          ? `${category.assignee.first_name} ${category.assignee.last_name}`.trim()
-                          : category.assignee.first_name || category.assignee.last_name || category.assignee.username) : 'Not assigned'}
+                        {category.assignee ? (category.assignee.first_name || category.assignee.username) : 'Not assigned'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -363,6 +404,67 @@ export const CategoriesPage: React.FC = () => {
               Last Uploaded
             </th>
           </tr>
+          {/* Filter Row */}
+          <tr className="bg-gray-100">
+            <th className="px-6 py-2">
+              <input
+                type="text"
+                placeholder="Filter by name..."
+                value={tableNameFilter}
+                onChange={(e) => setTableNameFilter(e.target.value)}
+                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </th>
+            <th className="px-6 py-2">
+              <select
+                value={tableReviewPeriodFilter}
+                onChange={(e) => setTableReviewPeriodFilter(e.target.value)}
+                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <option value="">All Periods</option>
+                {reviewPeriodOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </th>
+            <th className="px-6 py-2">
+              <select
+                value={tableStatusFilter}
+                onChange={(e) => setTableStatusFilter(e.target.value)}
+                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <option value="">All Status</option>
+                <option value="PENDING">Pending</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="UNDER_REVIEW">Under Review</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </th>
+            <th className="px-6 py-2">
+              <select
+                value={tableAssigneeFilter}
+                onChange={(e) => setTableAssigneeFilter(e.target.value)}
+                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <option value="">All Assignees</option>
+                {users.map(user => (
+                  <option key={user.id} value={user.id.toString()}>
+                    {user.first_name || user.username}
+                  </option>
+                ))}
+              </select>
+            </th>
+            <th className="px-6 py-2">
+              {/* Last Uploaded doesn't need a filter */}
+            </th>
+          </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {filteredCategories.map((category) => {
@@ -393,9 +495,7 @@ export const CategoriesPage: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <User size={14} className="text-gray-400" />
                   <span className="text-sm font-medium text-gray-900">
-                    {category.assignee.first_name && category.assignee.last_name 
-                      ? `${category.assignee.first_name} ${category.assignee.last_name}`.trim()
-                      : category.assignee.first_name || category.assignee.last_name || category.assignee.username}
+                    {category.assignee.first_name || category.assignee.username}
                   </span>
                 </div>
               ) : (
@@ -492,7 +592,7 @@ export const CategoriesPage: React.FC = () => {
             }`}
           >
             <ListFilter size={18} />
-            <span className="text-sm">{showAllCategories ? 'View My Categories' : 'View All Categories'}</span>
+            <span className="text-sm">{showAllCategories ? 'My Controls' : 'All Controls'}</span>
           </button>
           
           {/* View Toggle */}
@@ -648,9 +748,7 @@ export const CategoriesPage: React.FC = () => {
                       ? (() => {
                           const selectedUser = users.find(u => u.id.toString() === assigneeFilter);
                           if (selectedUser) {
-                            return selectedUser.first_name && selectedUser.last_name
-                              ? `${selectedUser.first_name} ${selectedUser.last_name}`.trim()
-                              : selectedUser.first_name || selectedUser.last_name || selectedUser.username;
+                            return selectedUser.first_name || selectedUser.username;
                           }
                           return 'All Assignees';
                         })()
@@ -676,9 +774,7 @@ export const CategoriesPage: React.FC = () => {
                       All Assignees
                     </button>
                     {users.map((user) => {
-                      const displayName = user.first_name && user.last_name
-                        ? `${user.first_name} ${user.last_name}`.trim()
-                        : user.first_name || user.last_name || user.username;
+                      const displayName = user.first_name || user.username;
                       return (
                         <button
                           key={user.id}

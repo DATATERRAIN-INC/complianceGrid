@@ -77,7 +77,7 @@ interface AnalyticsData {
 export const AnalyticsPage: React.FC = () => {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [myAssignmentsOnly, setMyAssignmentsOnly] = useState(false);
+  const [myAssignmentsOnly, setMyAssignmentsOnly] = useState(true); // Default to My Assignments
 
   useEffect(() => {
     fetchAnalytics();
@@ -149,11 +149,11 @@ export const AnalyticsPage: React.FC = () => {
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={myAssignmentsOnly}
-                  onChange={(e) => setMyAssignmentsOnly(e.target.checked)}
+                  checked={!myAssignmentsOnly}
+                  onChange={(e) => setMyAssignmentsOnly(!e.target.checked)}
                   className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
-                <span className="text-sm font-medium text-gray-700">My Assignments</span>
+                <span className="text-sm font-medium text-gray-700">All Assignments</span>
               </label>
             </div>
           </div>
@@ -229,7 +229,7 @@ export const AnalyticsPage: React.FC = () => {
               return (
                 <Link
                   key={group.group_code}
-                  to={`/categories?group=${group.group_code}`}
+                  to={`/categories?group=${group.group_code}${group.overdue_count > 0 ? '&status=overdue' : ''}`}
                   className="bg-white rounded-lg border-l-4 p-4 shadow-sm hover:shadow-md transition-all cursor-pointer"
                   style={{ borderLeftColor: borderColor }}
                 >

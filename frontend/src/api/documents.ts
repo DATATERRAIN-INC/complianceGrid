@@ -27,6 +27,7 @@ export interface GroupedDocument {
       id: number | null;
       username: string;
       email: string | null;
+      first_name?: string;
     };
     files: Document[];
   }>;
@@ -65,7 +66,7 @@ export const documentsApi = {
     return response.data;
   },
 
-  getAllUsers: async (): Promise<Array<{ id: number; username: string; email: string }>> => {
+  getAllUsers: async (): Promise<Array<{ id: number; username: string; email: string; first_name?: string }>> => {
     const response = await apiClient.get('/files/');
     const files: Document[] = response.data.results || response.data;
     const userMap = new Map();
