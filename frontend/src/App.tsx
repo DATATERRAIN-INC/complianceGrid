@@ -138,6 +138,7 @@ function AppContent() {
     } finally {
       // Always clear local state and navigate, even if API call fails
       localStorage.removeItem('user');
+      localStorage.removeItem('google_drive_authenticated');
       setUser(null);
       navigate('/login', { replace: true });
     }

@@ -21,9 +21,14 @@ export const CategoryGroupsPage: React.FC = () => {
   });
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [creatingFolders, setCreatingFolders] = useState(false);
-  const [isGoogleAuthenticated, setIsGoogleAuthenticated] = useState(false);
+  // Initialize from localStorage so green tick shows immediately after callback
+  const [isGoogleAuthenticated, setIsGoogleAuthenticated] = useState(() => 
+    localStorage.getItem('google_drive_authenticated') === 'true'
+  );
 
-  // Check Google Drive authentication status from backend
+  // Check Google Drive authentication status from backend.
+  // Only set to true when API says so; when API says false, leave state as-is so the
+  // tick stays visible after OAuth callback (session cookie may not be visible yet).
   const checkGoogleDriveAuth = async () => {
     try {
       const response = await apiClient.get('/auth/me/');
@@ -31,21 +36,30 @@ export const CategoryGroupsPage: React.FC = () => {
       if (userData && userData.google_drive_authenticated) {
         setIsGoogleAuthenticated(true);
         localStorage.setItem('google_drive_authenticated', 'true');
-      } else {
-        setIsGoogleAuthenticated(false);
-        localStorage.removeItem('google_drive_authenticated');
       }
+      // When API returns false, do not clear state/localStorage so the green tick
+      // from the callback is not wiped before the session is visible.
     } catch (error) {
-      // If error, assume not authenticated
-      setIsGoogleAuthenticated(false);
-      localStorage.removeItem('google_drive_authenticated');
+      // On error, keep current state (e.g. from localStorage after callback)
+      const fromStorage = localStorage.getItem('google_drive_authenticated') === 'true';
+      setIsGoogleAuthenticated(fromStorage);
     }
   };
 
   useEffect(() => {
+    // Sync tick from localStorage first so it shows immediately after OAuth callback
+    const fromStorage = localStorage.getItem('google_drive_authenticated') === 'true';
+    if (fromStorage) setIsGoogleAuthenticated(true);
     fetchGroups();
     checkGoogleDriveAuth();
   }, [showAllGroups]);
+
+  // Re-check Google Drive auth when page becomes visible (e.g. after returning from OAuth callback)
+  useEffect(() => {
+    const onFocus = () => checkGoogleDriveAuth();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   const fetchGroups = async () => {
     try {
