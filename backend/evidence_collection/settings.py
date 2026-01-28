@@ -234,6 +234,7 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@compliancegri
 # Google Drive API settings
 GOOGLE_DRIVE_CLIENT_ID = os.environ.get('GOOGLE_DRIVE_CLIENT_ID', '')
 GOOGLE_DRIVE_CLIENT_SECRET = os.environ.get('GOOGLE_DRIVE_CLIENT_SECRET', '')
+# Must match frontend URL where OAuth callback is served (e.g. https://your-app.com/login/callback in production)
 GOOGLE_DRIVE_REDIRECT_URI = os.environ.get('GOOGLE_DRIVE_REDIRECT_URI', 'http://localhost:3000/login/callback')
 GOOGLE_DRIVE_SCOPES = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/drive.file']
 

@@ -479,10 +479,10 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
                             evidence_file.google_drive_file_url = drive_result['web_url']
                             evidence_file.save()
                             files_uploaded += 1
-                                    except Exception as e:
-                                        # Log error but continue with other files
-                                        error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
-                                        logger.error(error_msg, exc_info=True)
+                        except Exception as e:
+                            # Log error but continue with other files
+                            error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
+                            logger.error(error_msg, exc_info=True)
                             upload_errors.append(error_msg)
                             files_failed += 1
                     else:
@@ -2103,12 +2103,23 @@ class GoogleAuthView(viewsets.ViewSet):
     def initiate(self, request):
         """Get Google OAuth authorization URL"""
         from django.conf import settings
-        from urllib.parse import urlencode
+        from urllib.parse import urlencode, urlparse
+        
+        # Use request origin for redirect_uri when allowed, so production works without server .env
+        origin = request.META.get('HTTP_ORIGIN')
+        if not origin and request.META.get('HTTP_REFERER'):
+            parsed = urlparse(request.META.get('HTTP_REFERER', ''))
+            if parsed.scheme and parsed.netloc:
+                origin = f'{parsed.scheme}://{parsed.netloc}'
+        redirect_uri = settings.GOOGLE_DRIVE_REDIRECT_URI
+        if origin and getattr(settings, 'CORS_ALLOWED_ORIGINS', None):
+            if origin.rstrip('/') in [o.rstrip('/') for o in settings.CORS_ALLOWED_ORIGINS]:
+                redirect_uri = origin.rstrip('/') + '/login/callback'
         
         # Build authorization URL
         params = {
             'client_id': settings.GOOGLE_DRIVE_CLIENT_ID,
-            'redirect_uri': settings.GOOGLE_DRIVE_REDIRECT_URI,
+            'redirect_uri': redirect_uri,
             'response_type': 'code',
             'scope': ' '.join(settings.GOOGLE_DRIVE_SCOPES),
             'access_type': 'offline',
@@ -2145,16 +2156,22 @@ class GoogleOAuthCallbackView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Use same redirect_uri as in authorization request (from frontend or settings)
+        redirect_uri = request.data.get('redirect_uri') or settings.GOOGLE_DRIVE_REDIRECT_URI
+        if request.data.get('redirect_uri') and getattr(settings, 'CORS_ALLOWED_ORIGINS', None):
+            allowed_redirects = [o.rstrip('/') + '/login/callback' for o in settings.CORS_ALLOWED_ORIGINS]
+            if redirect_uri.rstrip('/') not in [r.rstrip('/') for r in allowed_redirects]:
+                redirect_uri = settings.GOOGLE_DRIVE_REDIRECT_URI
+        
         try:
-            # Exchange code for token
-            # Use the redirect_uri from settings (must match the one used in authorization request)
+            # Exchange code for token (redirect_uri must match the one used in authorization request)
             token_url = 'https://oauth2.googleapis.com/token'
             
             token_data = {
                 'code': code,
                 'client_id': settings.GOOGLE_DRIVE_CLIENT_ID,
                 'client_secret': settings.GOOGLE_DRIVE_CLIENT_SECRET,
-                'redirect_uri': settings.GOOGLE_DRIVE_REDIRECT_URI,  # Must match the redirect_uri used in authorization
+                'redirect_uri': redirect_uri,
                 'grant_type': 'authorization_code',
             }
             

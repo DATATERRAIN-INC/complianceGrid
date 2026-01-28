@@ -34,9 +34,9 @@ export const LoginCallbackPage: React.FC = () => {
       }
 
       try {
-        // Exchange code for token via backend
-        // Note: The callback endpoint is CSRF-exempt
-        const response = await apiClient.post('/auth/google/callback/', { code });
+        // Exchange code for token via backend (send redirect_uri so backend matches auth request)
+        const redirect_uri = window.location.origin + '/login/callback';
+        const response = await apiClient.post('/auth/google/callback/', { code, redirect_uri });
 
         const data = response.data;
         
