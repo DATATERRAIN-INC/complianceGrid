@@ -31,25 +31,42 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
       // Verify user is still authenticated
       try {
         const currentUser = await authApi.getCurrentUser();
-        if (currentUser) {
+        if (currentUser && currentUser.id) {
+          // User is authenticated, update localStorage with fresh data
+          localStorage.setItem('user', JSON.stringify(currentUser));
           setIsAuthenticated(true);
         } else {
-          // User not authenticated, clear localStorage and redirect
-          localStorage.removeItem('user');
-          setIsAuthenticated(false);
-          navigate('/login');
+          // If getCurrentUser returns null but we have localStorage, 
+          // it might be a session issue - try to keep user logged in
+          // Only redirect if we get a 401 error
+          const parsedUser = JSON.parse(user);
+          if (parsedUser && parsedUser.id) {
+            // Keep user logged in if localStorage has valid user data
+            // The session might be temporarily unavailable
+            setIsAuthenticated(true);
+          } else {
+            localStorage.removeItem('user');
+            setIsAuthenticated(false);
+            navigate('/login');
+          }
         }
       } catch (error) {
         // If error is 401, user is not authenticated
-        // Otherwise, might be a network error - keep user logged in if they have localStorage
         const errorStatus = (error as any)?.response?.status;
-        if (errorStatus === 401) {
+        if (errorStatus === 401 || errorStatus === 403) {
           localStorage.removeItem('user');
           setIsAuthenticated(false);
           navigate('/login');
         } else {
-          // Network or other error - assume still authenticated if localStorage exists
-          setIsAuthenticated(true);
+          // Network or other error - keep user logged in if localStorage exists
+          const parsedUser = JSON.parse(user);
+          if (parsedUser && parsedUser.id) {
+            setIsAuthenticated(true);
+          } else {
+            localStorage.removeItem('user');
+            setIsAuthenticated(false);
+            navigate('/login');
+          }
         }
       }
     };

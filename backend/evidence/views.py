@@ -32,7 +32,32 @@ from django.contrib.auth.models import User
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.conf import settings
+from django.core.mail import send_mail
 import requests
+from datetime import datetime
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def add_date_prefix_to_filename(filename):
+    """Add current date prefix to filename in format YYYY-MM-DD_filename.ext"""
+    # Check if filename already has a date prefix (YYYY-MM-DD_ format)
+    # to avoid double-prefixing
+    if len(filename) >= 11 and filename[4] == '-' and filename[7] == '-' and filename[10] == '_':
+        try:
+            # Try to parse the date prefix
+            datetime.strptime(filename[:10], '%Y-%m-%d')
+            # Already has date prefix, return as is
+            return filename
+        except ValueError:
+            # Not a valid date prefix, continue to add one
+            pass
+    
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    name, ext = os.path.splitext(filename)
+    return f"{current_date}_{name}{ext}"
 
 
 def create_due_date_notifications():
@@ -81,7 +106,7 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
     ViewSet for managing evidence categories
     """
     queryset = EvidenceCategory.objects.all()
-    permission_classes = []  # AllowAny for development
+    permission_classes = [IsAuthenticated]
     # Re-enable pagination with customizable page size
     
     def get_serializer_class(self):
@@ -273,9 +298,7 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
                                 pending_count += 1
                     except Exception as e:
                         # Log error but continue processing other categories
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.error(f"Error processing category {category.id}: {e}")
+                        logger.error(f"Error processing category {category.id}: {e}", exc_info=True)
                         continue
                 
                 avg_compliance_score = round(total_score / categories_with_score, 2) if categories_with_score > 0 else 0
@@ -412,9 +435,7 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
                         categories_created += 1
                     except Exception as e:
                         # Log error but continue with other categories
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.error(f"Error creating folder for category {category.name}: {str(e)}")
+                        logger.error(f"Error creating folder for category {category.name}: {str(e)}", exc_info=True)
                         continue
             
             # Step 3: Sync files - Upload any approved files that haven't been uploaded to Google Drive yet
@@ -458,12 +479,10 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
                             evidence_file.google_drive_file_url = drive_result['web_url']
                             evidence_file.save()
                             files_uploaded += 1
-                        except Exception as e:
-                            # Log error but continue with other files
-                            import logging
-                            logger = logging.getLogger(__name__)
-                            error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
-                            logger.error(error_msg)
+                                    except Exception as e:
+                                        # Log error but continue with other files
+                                        error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
+                                        logger.error(error_msg, exc_info=True)
                             upload_errors.append(error_msg)
                             files_failed += 1
                     else:
@@ -622,9 +641,7 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
                         })
                     except Exception as e:
                         # Log error but continue with other categories
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.error(f"Error processing category {category.id} for export: {e}")
+                        logger.error(f"Error processing category {category.id} for export: {e}", exc_info=True)
                         # Still add the category with default values
                         export_data.append({
                             'category_group': group_label,
@@ -658,8 +675,6 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
             else:
                 return self._generate_excel(export_data)
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Error in export_groups: {e}", exc_info=True)
             return Response(
                 {'error': f'Failed to export data: {str(e)}'},
@@ -723,12 +738,7 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
             response['Content-Disposition'] = 'attachment; filename="category_groups_export.xlsx"'
             return response
         except Exception as e:
-            import logging
-            import traceback
-            logger = logging.getLogger(__name__)
-            error_msg = f"Error generating Excel: {e}"
-            logger.error(error_msg, exc_info=True)
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Error generating Excel: {e}", exc_info=True)
     
     def _generate_pdf(self, data):
         """Generate PDF file"""
@@ -800,12 +810,7 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
             response['Content-Disposition'] = 'attachment; filename="category_groups_export.pdf"'
             return response
         except Exception as e:
-            import logging
-            import traceback
-            logger = logging.getLogger(__name__)
-            error_msg = f"Error generating PDF: {e}"
-            logger.error(error_msg, exc_info=True)
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Error generating PDF: {e}", exc_info=True)
             raise
 
 
@@ -815,7 +820,7 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = EvidenceSubmission.objects.all()
     serializer_class = EvidenceSubmissionSerializer
-    permission_classes = []  # AllowAny for development
+    permission_classes = [IsAuthenticated]
     
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -894,10 +899,17 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                     # If assignee uploads, file needs approval
                     file_status = EvidenceStatus.SUBMITTED
                 
+                # Add date prefix to filename
+                date_prefixed_filename = add_date_prefix_to_filename(file.name)
+                
+                # Create a new file object with the date-prefixed name
+                # We need to rename the file before saving
+                file.name = date_prefixed_filename
+                
                 # Create EvidenceFile record with local file storage only
                 evidence_file = EvidenceFile.objects.create(
                     submission=submission,
-                    filename=file.name,
+                    filename=date_prefixed_filename,
                     file=file,  # Save file locally using FileField
                     file_size=file.size,
                     mime_type=file.content_type or 'application/octet-stream',
@@ -957,16 +969,12 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                                         evidence_file.google_drive_file_url = drive_result['web_url']
                                         evidence_file.save()
                                     except Exception as e:
-                                        import logging
-                                        logger = logging.getLogger(__name__)
                                         error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
-                                        logger.error(error_msg)
+                                        logger.error(error_msg, exc_info=True)
                                         upload_errors.append(error_msg)
                             except Exception as e:
-                                import logging
-                                logger = logging.getLogger(__name__)
                                 error_msg = f"Failed to initialize Google Drive service: {str(e)}"
-                                logger.error(error_msg)
+                                logger.error(error_msg, exc_info=True)
                                 upload_errors.append(error_msg)
                 
                 uploaded_files.append(evidence_file)
@@ -1013,6 +1021,36 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                     submission=submission,
                     is_read=False
                 )
+                
+                # Send email notification to approver
+                if category.approver.email:
+                    try:
+                        subject = f"New Evidence Submission: {category.name}"
+                        message = f"""Hello {category.approver.first_name or category.approver.username},
+
+New evidence files have been submitted for the control "{category.name}" and are awaiting your approval.
+
+Control: {category.name}
+Submitted by: {request.user.get_full_name() or request.user.username}
+Due Date: {submission.due_date}
+Period: {submission.period_start_date} to {submission.period_end_date}
+
+Number of files submitted: {len(uploaded_files)}
+
+Please review and approve or reject the submission in the ComplianceGrid system.
+
+Best regards,
+ComplianceGrid System
+"""
+                        send_mail(
+                            subject,
+                            message,
+                            settings.DEFAULT_FROM_EMAIL,
+                            [category.approver.email],
+                            fail_silently=False,
+                        )
+            except Exception as e:
+                logger.error(f"Failed to send email notification to approver: {str(e)}", exc_info=True)
             
             serializer = EvidenceSubmissionSerializer(submission, context={'request': request})
             response_data = serializer.data
@@ -1025,10 +1063,35 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                 response_data['upload_status'] = 'Files approved and uploaded to Google Drive successfully.'
             
             return Response(response_data, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['patch'])
+    def update_due_date(self, request, pk=None):
+        """Update the due date of a submission"""
+        submission = self.get_object()
+        due_date_str = request.data.get('due_date')
+        
+        if not due_date_str:
+            return Response(
+                {'error': 'due_date is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            from datetime import datetime
+            due_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+            submission.due_date = due_date
+            submission.save()
             
+            serializer = self.get_serializer(submission)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except ValueError:
+            return Response(
+                {'error': 'Invalid date format. Use YYYY-MM-DD'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             return Response(
-                {'error': f'Failed to upload files: {str(e)}'},
+                {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
@@ -1114,23 +1177,19 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                                 evidence_file.google_drive_file_url = drive_result['web_url']
                                 evidence_file.save()
                                 uploaded_count += 1
-                            except Exception as e:
-                                # Log error and collect for response
-                                import logging
-                                logger = logging.getLogger(__name__)
-                                error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
-                                logger.error(error_msg)
-                                upload_errors.append(error_msg)
+                except Exception as e:
+                    # Log error and collect for response
+                    error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
+                    logger.error(error_msg, exc_info=True)
+                    upload_errors.append(error_msg)
                         else:
                             error_msg = f"Local file not found for {evidence_file.filename}"
                             upload_errors.append(error_msg)
                             
                 except Exception as e:
                     # Log error and collect for response
-                    import logging
-                    logger = logging.getLogger(__name__)
                     error_msg = f"Failed to initialize Google Drive service: {str(e)}"
-                    logger.error(error_msg)
+                    logger.error(error_msg, exc_info=True)
                     upload_errors.append(error_msg)
             else:
                 upload_errors.append("Google Drive not authenticated. Please authenticate Google Drive first.")
@@ -1172,6 +1231,40 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         submission.reviewed_at = timezone.now()
         submission.review_notes = review_notes
         submission.save()
+        
+        # Send email notification to assignee when submission is rejected
+        category = submission.category
+        if category.assignee and category.assignee.email:
+            try:
+                subject = f"Evidence Submission Rejected: {category.name}"
+                message = f"""Hello {category.assignee.first_name or category.assignee.username},
+
+Your evidence submission for the control "{category.name}" has been rejected by the approver.
+
+Control: {category.name}
+Rejected by: {request.user.get_full_name() or request.user.username}
+Rejection Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Review Comments:
+{review_notes}
+
+Due Date: {submission.due_date}
+Period: {submission.period_start_date} to {submission.period_end_date}
+
+Please review the comments, make necessary corrections, and resubmit your evidence.
+
+Best regards,
+ComplianceGrid System
+"""
+                send_mail(
+                    subject,
+                    message,
+                    settings.DEFAULT_FROM_EMAIL,
+                    [category.assignee.email],
+                    fail_silently=False,
+                )
+                except Exception as e:
+                    logger.error(f"Failed to send email notification to assignee: {str(e)}", exc_info=True)
         
         serializer = EvidenceSubmissionSerializer(submission)
         return Response(serializer.data)
@@ -1665,7 +1758,7 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
 class LoginView(APIView):
     """Handle email/password login - CSRF exempt"""
     authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]  # Login must be publicly accessible
     
     @method_decorator(csrf_exempt)
     def dispatch(self, *args, **kwargs):
@@ -1726,14 +1819,8 @@ class LoginView(APIView):
             request.session.modified = True
             request.session.save()
             
-            # Verify the session has the auth data
-            from django.contrib.sessions.models import Session
-            session_obj = Session.objects.get(session_key=request.session.session_key)
-            print(f"DEBUG: Session data after login: {session_obj.get_decoded()}")
-            
             # Get session key after save
             session_key = request.session.session_key
-            print(f"DEBUG: Login successful for user {user.username}, session_key: {session_key}, user_id in session: {request.session.get('_auth_user_id')}")
             
             # Set CSRF token in response for subsequent requests
             from django.middleware.csrf import get_token
@@ -1741,8 +1828,7 @@ class LoginView(APIView):
             serializer = UserSerializer(user)
             response = Response({
                 'user': serializer.data,
-                'message': 'Login successful',
-                'session_key': session_key  # Debug: include session key in response
+                'message': 'Login successful'
             })
             # Ensure CSRF cookie is set
             response.set_cookie(
@@ -1767,9 +1853,6 @@ class LoginView(APIView):
                     path='/',
                     domain=None  # Allow cookie for localhost
                 )
-                print(f"DEBUG: Setting session cookie: {session_key}")
-            else:
-                print("DEBUG: WARNING - No session key after login!")
             return response
         else:
             return Response(
@@ -1782,7 +1865,7 @@ class AuthView(viewsets.ViewSet):
     """
     ViewSet for username/password authentication
     """
-    permission_classes = []
+    permission_classes = [AllowAny]  # Auth endpoints must be publicly accessible
     authentication_classes = []  # No authentication required for login
     
     @action(detail=False, methods=['post'])
@@ -1807,51 +1890,50 @@ class AuthView(viewsets.ViewSet):
     @action(detail=False, methods=['get'], authentication_classes=[], permission_classes=[])
     def me(self, request):
         """Get current user - allow unauthenticated to return None"""
-        session_key = request.session.session_key
-        auth_user_id = request.session.get('_auth_user_id') if session_key else None
-        
-        # Debug: Check session data from database
-        if session_key:
-            from django.contrib.sessions.models import Session
-            try:
-                session_obj = Session.objects.get(session_key=session_key)
-                session_data = session_obj.get_decoded()
-                print(f"DEBUG: Session data from DB: {session_data}")
-                print(f"DEBUG: Auth user ID in DB session: {session_data.get('_auth_user_id')}")
-            except Session.DoesNotExist:
-                print(f"DEBUG: WARNING - Session {session_key} not found in database!")
-        
-        print(f"DEBUG: /auth/me/ called - session_key: {session_key}, auth_user_id in session: {auth_user_id}, user: {request.user}, authenticated: {request.user.is_authenticated}")
-        print(f"DEBUG: Cookies in request: {request.COOKIES}")
+        from django.contrib.auth.models import User
         
         # Check Google Drive authentication status
         google_drive_authenticated = bool(request.session.get('google_access_token'))
         
-        # If we have auth_user_id in session but user is not authenticated, try to get user manually
-        if not request.user.is_authenticated and auth_user_id:
-            from django.contrib.auth.models import User
-            try:
-                user = User.objects.get(pk=auth_user_id)
-                print(f"DEBUG: Found user from session auth_user_id: {user.username}")
-                serializer = UserSerializer(user)
-                return Response({
-                    'user': serializer.data,
-                    'google_drive_authenticated': google_drive_authenticated
-                })
-            except User.DoesNotExist:
-                print(f"DEBUG: User with id {auth_user_id} does not exist")
-        
+        # First check if request.user is authenticated (standard Django auth)
         if request.user.is_authenticated:
             serializer = UserSerializer(request.user)
             return Response({
                 'user': serializer.data,
                 'google_drive_authenticated': google_drive_authenticated
             })
-        else:
-            return Response({
-                'user': None,
-                'google_drive_authenticated': False
-            }, status=status.HTTP_200_OK)
+        
+        # If not authenticated via request.user, check session directly
+        # This handles cases where session exists but middleware hasn't set request.user
+        session_key = request.session.session_key
+        auth_user_id = request.session.get('_auth_user_id') if session_key else None
+        
+        if auth_user_id:
+            try:
+                user = User.objects.get(pk=auth_user_id)
+                # Manually authenticate the user for this request
+                # This ensures request.user is set for subsequent checks
+                from django.contrib.auth import login
+                user.backend = 'django.contrib.auth.backends.ModelBackend'
+                login(request, user)
+                
+                serializer = UserSerializer(user)
+                return Response({
+                    'user': serializer.data,
+                    'google_drive_authenticated': google_drive_authenticated
+                })
+            except User.DoesNotExist:
+                logger.warning(f"User with id {auth_user_id} from session does not exist")
+                return Response({
+                    'user': None,
+                    'google_drive_authenticated': False
+                }, status=status.HTTP_200_OK)
+        
+        # No authenticated user found
+        return Response({
+            'user': None,
+            'google_drive_authenticated': False
+        }, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=['get'])
     def csrf(self, request):
@@ -1956,7 +2038,7 @@ class GoogleAuthView(viewsets.ViewSet):
     """
     ViewSet for Google OAuth authentication (deprecated - kept for backward compatibility)
     """
-    permission_classes = []
+    permission_classes = [AllowAny]  # OAuth endpoints must be publicly accessible
     
     @action(detail=False, methods=['post'])
     def google(self, request):
@@ -2043,7 +2125,7 @@ class GoogleAuthView(viewsets.ViewSet):
 class GoogleOAuthCallbackView(APIView):
     """Handle Google OAuth callback - CSRF exempt"""
     authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]  # OAuth callback must be publicly accessible
     
     @method_decorator(csrf_exempt)
     def dispatch(self, *args, **kwargs):
@@ -2193,7 +2275,7 @@ class EvidenceFileViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = EvidenceFile.objects.select_related('submission__category', 'uploaded_by').all()
     serializer_class = EvidenceFileSerializer
-    permission_classes = []  # AllowAny for development
+    permission_classes = [IsAuthenticated]
     
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -2332,20 +2414,16 @@ class EvidenceFileViewSet(viewsets.ReadOnlyModelViewSet):
                             evidence_file.save()
                             uploaded = True
                         except Exception as e:
-                            import logging
-                            logger = logging.getLogger(__name__)
                             error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
-                            logger.error(error_msg)
+                            logger.error(error_msg, exc_info=True)
                             upload_errors.append(error_msg)
                     elif evidence_file.google_drive_file_id:
                         uploaded = True  # Already uploaded
                         
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    error_msg = f"Failed to initialize Google Drive service: {str(e)}"
-                    logger.error(error_msg)
-                    upload_errors.append(error_msg)
+                        except Exception as e:
+                            error_msg = f"Failed to initialize Google Drive service: {str(e)}"
+                            logger.error(error_msg, exc_info=True)
+                            upload_errors.append(error_msg)
             else:
                 upload_errors.append("Google Drive not authenticated. Please authenticate Google Drive first.")
         else:
@@ -2387,6 +2465,41 @@ class EvidenceFileViewSet(viewsets.ReadOnlyModelViewSet):
         evidence_file.review_notes = review_notes
         evidence_file.save()
         
+        # Send email notification to assignee when file is rejected
+        category = evidence_file.submission.category
+        if category.assignee and category.assignee.email:
+            try:
+                subject = f"Evidence File Rejected: {category.name}"
+                message = f"""Hello {category.assignee.first_name or category.assignee.username},
+
+Your evidence file "{evidence_file.filename}" for the control "{category.name}" has been rejected by the approver.
+
+Control: {category.name}
+File: {evidence_file.filename}
+Rejected by: {request.user.get_full_name() or request.user.username}
+Rejection Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Review Comments:
+{review_notes}
+
+Due Date: {evidence_file.submission.due_date}
+Period: {evidence_file.submission.period_start_date} to {evidence_file.submission.period_end_date}
+
+Please review the comments, make necessary corrections, and resubmit your evidence file.
+
+Best regards,
+ComplianceGrid System
+"""
+                send_mail(
+                    subject,
+                    message,
+                    settings.DEFAULT_FROM_EMAIL,
+                    [category.assignee.email],
+                    fail_silently=False,
+                )
+                except Exception as e:
+                    logger.error(f"Failed to send email notification to assignee: {str(e)}", exc_info=True)
+        
         serializer = EvidenceFileSerializer(evidence_file, context={'request': request})
         return Response(serializer.data)
 
@@ -2396,7 +2509,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
     ViewSet for managing notifications
     """
     serializer_class = NotificationSerializer
-    permission_classes = []  # AllowAny for development
+    permission_classes = [IsAuthenticated]
     pagination_class = None  # Disable pagination for notifications
     
     def get_queryset(self):

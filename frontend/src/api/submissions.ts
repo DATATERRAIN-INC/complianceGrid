@@ -105,5 +105,12 @@ export const submissionsApi = {
     });
     return response.data;
   },
+
+  updateDueDate: async (id: number, dueDate: string): Promise<Submission> => {
+    const response = await apiClient.patch(`/submissions/${id}/update_due_date/`, {
+      due_date: dueDate,
+    });
+    return response.data;
+  },
 };
 

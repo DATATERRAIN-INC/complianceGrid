@@ -3,6 +3,10 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 // Get backend URL from environment variable, fallback to default
 const backendUrl = process.env.REACT_APP_API_URL || 'https://compliancegrid-backend.dataterrain-demo.net';
 
+// Log the backend URL being used (for debugging)
+console.log('[PROXY] Backend URL from environment:', process.env.REACT_APP_API_URL || 'not set (using default)');
+console.log('[PROXY] Using backend URL:', backendUrl);
+
 module.exports = function(app) {
   app.use(
     '/api',

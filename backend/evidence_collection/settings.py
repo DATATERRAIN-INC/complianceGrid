@@ -137,7 +137,13 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Media files (User uploaded files)
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# Allow MEDIA_ROOT to be overridden via environment variable for server deployments
+# If not set, defaults to BASE_DIR / 'media'
+MEDIA_ROOT = os.environ.get('MEDIA_ROOT', None)
+if MEDIA_ROOT:
+    MEDIA_ROOT = Path(MEDIA_ROOT)
+else:
+    MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -226,8 +232,8 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@compliancegrid.com')
 
 # Google Drive API settings
-GOOGLE_DRIVE_CLIENT_ID = os.environ.get('GOOGLE_DRIVE_CLIENT_ID', '1074048886618-5dfqnmghrdk3gkpq2kj97aeck9cfspb7.apps.googleusercontent.com')
-GOOGLE_DRIVE_CLIENT_SECRET = os.environ.get('GOOGLE_DRIVE_CLIENT_SECRET', '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')
+GOOGLE_DRIVE_CLIENT_ID = os.environ.get('GOOGLE_DRIVE_CLIENT_ID', '')
+GOOGLE_DRIVE_CLIENT_SECRET = os.environ.get('GOOGLE_DRIVE_CLIENT_SECRET', '')
 GOOGLE_DRIVE_REDIRECT_URI = os.environ.get('GOOGLE_DRIVE_REDIRECT_URI', 'http://localhost:3000/login/callback')
 GOOGLE_DRIVE_SCOPES = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/drive.file']
 

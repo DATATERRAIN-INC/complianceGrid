@@ -34,6 +34,7 @@ export const CategoryDetailPage: React.FC = () => {
     review_period: '',
     assignee: null as number | null,
     approver: null as number | null,
+    due_date: '' as string,
   });
 
   useEffect(() => {
@@ -74,6 +75,7 @@ export const CategoryDetailPage: React.FC = () => {
         review_period: data.review_period,
         assignee: data.assignee?.id || null,
         approver: data.approver?.id || null,
+        due_date: data.current_submission?.due_date || '',
       });
     } catch (error) {
       console.error('Error fetching category:', error);
@@ -97,6 +99,20 @@ export const CategoryDetailPage: React.FC = () => {
         approver_id: editForm.approver,
       };
       await categoriesApi.update(parseInt(id), updateData);
+      
+      // Update due date if there's a current submission and due date was changed
+      if (category.current_submission && editForm.due_date) {
+        try {
+          await submissionsApi.updateDueDate(
+            category.current_submission.id,
+            editForm.due_date
+          );
+        } catch (error: any) {
+          console.error('Error updating due date:', error);
+          toast.error(error.response?.data?.error || 'Failed to update due date');
+        }
+      }
+      
       // Refetch to get full CategoryDetail with past_submissions
       await fetchCategoryDetail();
       setIsEditing(false);
@@ -116,6 +132,7 @@ export const CategoryDetailPage: React.FC = () => {
         review_period: category.review_period,
         assignee: category.assignee?.id || null,
         approver: category.approver?.id || null,
+        due_date: category.current_submission?.due_date || '',
       });
     }
     setIsEditing(false);
@@ -459,6 +476,19 @@ export const CategoryDetailPage: React.FC = () => {
                     ))}
                   </select>
                 </div>
+                {category.current_submission && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Due Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editForm.due_date}
+                      onChange={(e) => setEditForm({ ...editForm, due_date: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
                 <div className="flex gap-2 justify-center">
                   <Button variant="secondary" onClick={handleCancelEdit}>
                     Cancel
