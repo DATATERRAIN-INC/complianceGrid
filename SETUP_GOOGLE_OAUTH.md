@@ -77,7 +77,33 @@ To enable Google OAuth login and Google Drive integration, you need to set up OA
 - **"Google Client ID not configured"**: Make sure `REACT_APP_GOOGLE_CLIENT_ID` is set in `frontend/.env` and the server is restarted
 - **"redirect_uri_mismatch"**: Make sure the redirect URI in Google Console matches exactly: `http://localhost:3000/login/callback`
 - **"invalid_client"**: Check that your Client ID and Secret are correct
+- **"unauthorized_client" when uploading to Google Drive (RefreshError)**: See "Verifying which OAuth client issued the refresh token" below
 - **CORS errors**: Make sure authorized JavaScript origins include `http://localhost:3000`
+
+## Verifying which OAuth client issued the refresh token
+
+The refresh token is **tied to the OAuth client** that was used when the user signed in. If you get `unauthorized_client` or `RefreshError` when uploading to Google Drive after approval, the token was likely issued by a **different client** than the one in your backend `.env`.
+
+**How to check:**
+
+1. **See which client your backend uses**
+   - Open `backend/.env` and note:
+     - `GOOGLE_DRIVE_CLIENT_ID` (e.g. `567699847744-xxxx.apps.googleusercontent.com`)
+     - `GOOGLE_DRIVE_CLIENT_SECRET`
+
+2. **See which client(s) exist in Google Cloud**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Credentials** → **Credentials**
+   - Under **OAuth 2.0 Client IDs**, you see each client’s **Client ID** (and type, e.g. "Web application")
+   - The **Client ID** in `.env` must match **exactly** one of these (including the numeric prefix)
+
+3. **Make sure the same client was used when signing in**
+   - When the user clicked "Authenticate" (Google Drive), the app sent that client’s Client ID to Google
+   - The backend builds the auth URL using `GOOGLE_DRIVE_CLIENT_ID` from `.env`
+   - So the token is issued for that client. If you later change `.env` to a **different** Client ID (e.g. another project or client), existing refresh tokens will no longer work → `unauthorized_client`
+
+4. **Fix**
+   - **Option A:** Keep using the **same** OAuth client: ensure `GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET` in `backend/.env` are from the **same** Web application client in Google Cloud that you use when users click "Authenticate". Do not mix clients from different projects or different client IDs.
+   - **Option B:** After changing to a new client, have users **re-authenticate**: click "Authenticate" on the Category Groups page and sign in with Google again so new tokens are issued for the new client.
 
 ## Production Setup
 

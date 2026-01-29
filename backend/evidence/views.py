@@ -19,7 +19,7 @@ from reportlab.lib.units import inch
 from .models import (
     EvidenceCategory, EvidenceSubmission, EvidenceFile,
     SubmissionComment, EvidenceStatus, CategoryGroup, Notification,
-    GoogleDriveFolderMapping
+    GoogleDriveFolderMapping, UserGoogleDriveToken
 )
 from .serializers import (
     EvidenceCategorySerializer, EvidenceCategoryDetailSerializer,
@@ -39,6 +39,50 @@ import os
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def get_google_drive_tokens(request):
+    """
+    Get Google Drive access_token and refresh_token.
+    Tries session first; if missing and user is authenticated, uses tokens stored per user in DB.
+    Returns (access_token, refresh_token) or (None, None).
+    """
+    access_token = request.session.get('google_access_token')
+    refresh_token = request.session.get('google_refresh_token')
+    if access_token:
+        return access_token, refresh_token
+    if request.user.is_authenticated:
+        try:
+            token_record = UserGoogleDriveToken.objects.get(user=request.user)
+            return token_record.access_token, token_record.refresh_token
+        except UserGoogleDriveToken.DoesNotExist:
+            pass
+    return None, None
+
+
+def get_google_drive_tokens_for_upload(request, category=None, submission=None):
+    """
+    Get Google Drive tokens for uploading (e.g. on approve).
+    Uses current user first; if none, tries category assignee then submission submitter,
+    so the approver doesn't need to have authenticated with Google.
+    Returns (access_token, refresh_token) or (None, None).
+    """
+    access_token, refresh_token = get_google_drive_tokens(request)
+    if access_token:
+        return access_token, refresh_token
+    # Fallback: use assignee's or submitter's tokens so approve still uploads to Drive
+    user_ids_to_try = []
+    if category and category.assignee_id:
+        user_ids_to_try.append(category.assignee_id)
+    if submission and submission.submitted_by_id and submission.submitted_by_id not in user_ids_to_try:
+        user_ids_to_try.append(submission.submitted_by_id)
+    for user_id in user_ids_to_try:
+        try:
+            token_record = UserGoogleDriveToken.objects.get(user_id=user_id)
+            return token_record.access_token, token_record.refresh_token
+        except UserGoogleDriveToken.DoesNotExist:
+            continue
+    return None, None
 
 
 def add_date_prefix_to_filename(filename):
@@ -316,8 +360,8 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='create-google-drive-folders')
     def create_google_drive_folders(self, request):
         """Create folder structure in Google Drive for category groups"""
-        # Check if user has Google access token in session
-        access_token = request.session.get('google_access_token')
+        # Use session first; fall back to per-user tokens in DB (so Sync works when session cookie isn't sent)
+        access_token, refresh_token = get_google_drive_tokens(request)
         if not access_token:
             return Response(
                 {'error': 'Google Drive authentication required. Please authenticate with Google first.'},
@@ -325,13 +369,6 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            # Initialize Google Drive service
-            refresh_token = request.session.get('google_refresh_token')
-            if not access_token:
-                return Response(
-                    {'error': 'Google Drive not authenticated. Please authenticate Google Drive first.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
             drive_service = GoogleDriveService(access_token=access_token, refresh_token=refresh_token)
             
             # Define folder structure mapping
@@ -403,6 +440,14 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
                         subfolder_id = drive_service.create_folder(group_label, parent_folder_id=parent_folder_id)
                         category_group_folder_ids[group_code] = subfolder_id
             
+            # Create Uncategorized folder under root (for categories with no/uncategorized group)
+            if 'UNCATEGORIZED' not in category_group_folder_ids:
+                uncategorized_label = dict(CategoryGroup.choices).get('UNCATEGORIZED', 'Uncategorized')
+                uncategorized_folder_id = drive_service.create_folder(
+                    uncategorized_label, parent_folder_id=root_folder_id
+                )
+                category_group_folder_ids['UNCATEGORIZED'] = uncategorized_folder_id
+            
             # Save folder mapping
             folder_mapping.category_group_folder_ids = category_group_folder_ids
             folder_mapping.save()
@@ -411,11 +456,17 @@ class EvidenceCategoryViewSet(viewsets.ModelViewSet):
             categories_created = 0
             categories_skipped = 0
             for group_code, group_folder_id in category_group_folder_ids.items():
-                # Get all categories for this group
-                categories = EvidenceCategory.objects.filter(
-                    category_group=group_code,
-                    is_active=True
-                )
+                # Get all categories for this group (Uncategorized includes null/blank category_group)
+                if group_code == 'UNCATEGORIZED':
+                    categories = EvidenceCategory.objects.filter(
+                        Q(category_group='UNCATEGORIZED') | Q(category_group__isnull=True) | Q(category_group=''),
+                        is_active=True
+                    )
+                else:
+                    categories = EvidenceCategory.objects.filter(
+                        category_group=group_code,
+                        is_active=True
+                    )
                 
                 for category in categories:
                     # Skip if folder already exists
@@ -850,8 +901,10 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         submission = self.get_object()
         
       
-        if submission.status not in [EvidenceStatus.PENDING, EvidenceStatus.REJECTED, 
-                                     EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW]:
+        # Allow uploads for PENDING, REJECTED, SUBMITTED, UNDER_REVIEW, and APPROVED (add more evidence)
+        if submission.status not in [EvidenceStatus.PENDING, EvidenceStatus.REJECTED,
+                                     EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW,
+                                     EvidenceStatus.APPROVED]:
             return Response(
                 {'error': 'This submission cannot be submitted in its current status.'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -882,8 +935,15 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         notes = request.data.get('notes', '')
         due_date_str = request.data.get('due_date')
         
-        # Check if current user is the approver
-        is_approver = request.user.is_authenticated and category.approver and request.user.id == category.approver.id
+        # Only treat as "approver upload" (auto-approve) when user is approver and NOT assignee.
+        # When assignee and approver are the same, treat uploads as assignee submissions so they
+        # go through explicit approval (better audit trail).
+        is_approver = (
+            request.user.is_authenticated
+            and category.approver
+            and request.user.id == category.approver.id
+            and (not category.assignee or request.user.id != category.assignee.id)
+        )
         
         # Save files locally (Google Drive upload will happen after approval)
         try:
@@ -927,11 +987,9 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                     
                     # Upload to Google Drive immediately
                     if category.google_drive_folder_id:
-                        access_token = request.session.get('google_access_token')
-                        refresh_token = request.session.get('google_refresh_token')
-                        
+                        access_token, refresh_token = get_google_drive_tokens(request)
                         if not access_token:
-                            # Try to get token from any user's session
+                            # Fallback: try to get token from any user's session
                             from django.contrib.sessions.models import Session
                             recent_sessions = Session.objects.filter(expire_date__gte=timezone.now())
                             for session in recent_sessions:
@@ -980,10 +1038,10 @@ class EvidenceSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                 uploaded_files.append(evidence_file)
             
             # Update submission
-            # Only change status to SUBMITTED if it was PENDING or REJECTED and not approver upload
-            # If approver uploads, keep current status or set to APPROVED if all files are approved
+            # When assignee uploads: set to SUBMITTED if was PENDING, REJECTED, or APPROVED (new files need approval)
+            # When approver uploads: set to APPROVED if all files are approved
             if not is_approver:
-                if submission.status in [EvidenceStatus.PENDING, EvidenceStatus.REJECTED]:
+                if submission.status in [EvidenceStatus.PENDING, EvidenceStatus.REJECTED, EvidenceStatus.APPROVED]:
                     submission.status = EvidenceStatus.SUBMITTED
                     submission.submitted_by = request.user if request.user.is_authenticated else None
                     submission.submitted_at = timezone.now()
@@ -1127,16 +1185,13 @@ ComplianceGrid System
         uploaded_count = 0
         
         if category.google_drive_folder_id:
-            access_token = request.session.get('google_access_token')
-            refresh_token = request.session.get('google_refresh_token')
-            
+            # Use approver's tokens, or assignee/submitter's so approver doesn't need to have authenticated
+            access_token, refresh_token = get_google_drive_tokens_for_upload(
+                request, category=category, submission=submission
+            )
             if not access_token:
-                # Try to get token from any user's session (since Google Drive is shared)
-                # Check if there's a way to get a shared token or use the first authenticated user
+                # Fallback: try to get token from any user's session
                 from django.contrib.sessions.models import Session
-                
-                # Try to find a recent session with Google Drive token
-                # Look for sessions from the last 24 hours
                 recent_sessions = Session.objects.filter(expire_date__gte=timezone.now())
                 for session in recent_sessions:
                     try:
@@ -1184,22 +1239,38 @@ ComplianceGrid System
                                 evidence_file.save()
                                 uploaded_count += 1
                             except Exception as e:
-                                # Log error and collect for response
-                                error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
-                                logger.error(error_msg, exc_info=True)
-                                upload_errors.append(error_msg)
+                                err_str = str(e).lower()
+                                if 'unauthorized_client' in err_str or 'refresherror' in type(e).__name__.lower():
+                                    upload_errors.append(
+                                        "Google Drive token is invalid or was issued by a different app. "
+                                        "Please click 'Authenticate' on the Category Groups page and sign in with Google again, then approve again."
+                                    )
+                                else:
+                                    upload_errors.append(f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}")
+                                logger.error(f"Failed to upload {evidence_file.filename} to Google Drive: {e}", exc_info=True)
                         else:
                             error_msg = f"Local file not found for {evidence_file.filename}"
                             upload_errors.append(error_msg)
                 except Exception as e:
-                    # Log error and collect for response
-                    error_msg = f"Failed to initialize Google Drive service: {str(e)}"
-                    logger.error(error_msg, exc_info=True)
-                    upload_errors.append(error_msg)
+                    err_str = str(e).lower()
+                    if 'unauthorized_client' in err_str or 'refresherror' in type(e).__name__.lower():
+                        upload_errors.append(
+                            "Google Drive token is invalid or was issued by a different app. "
+                            "Please click 'Authenticate' on the Category Groups page and sign in with Google again, then approve again."
+                        )
+                    else:
+                        upload_errors.append(f"Failed to initialize Google Drive service: {str(e)}")
+                    logger.error(f"Failed to initialize Google Drive service: {e}", exc_info=True)
             else:
-                upload_errors.append("Google Drive not authenticated. Please authenticate Google Drive first.")
+                upload_errors.append(
+                    "Google Drive not authenticated. Please click 'Authenticate' (green tick) on the Category Groups page "
+                    "and sign in with Google before approving, so files can be uploaded to Drive."
+                )
         else:
-            upload_errors.append("Google Drive folder not configured for this category.")
+            upload_errors.append(
+                "Google Drive folder not configured for this category. Please run 'Sync Google Drive folders' or "
+                "'Create Google Drive folders' from the Category Groups page first, then approve again."
+            )
         
         serializer = EvidenceSubmissionSerializer(submission)
         response_data = serializer.data
@@ -1209,7 +1280,10 @@ ComplianceGrid System
             response_data['upload_status'] = f'Successfully uploaded {uploaded_count} file(s) to Google Drive.'
         if upload_errors:
             response_data['upload_errors'] = upload_errors
-            response_data['upload_warning'] = 'Submission approved, but some files could not be uploaded to Google Drive.'
+            response_data['upload_warning'] = (
+                'Submission approved, but some files could not be uploaded to Google Drive. '
+                'You can run Sync from the Category Groups page to upload them later.'
+            )
         
         return Response(response_data)
     
@@ -1897,8 +1971,9 @@ class AuthView(viewsets.ViewSet):
         """Get current user - allow unauthenticated to return None"""
         from django.contrib.auth.models import User
         
-        # Check Google Drive authentication status
-        google_drive_authenticated = bool(request.session.get('google_access_token'))
+        # Google Drive auth: session tokens or per-user tokens in DB (so green tick persists when session cookie isn't sent)
+        access_token, _ = get_google_drive_tokens(request)
+        google_drive_authenticated = bool(access_token)
         
         # First check if request.user is authenticated (standard Django auth)
         if request.user.is_authenticated:
@@ -2120,7 +2195,8 @@ class GoogleAuthView(viewsets.ViewSet):
         if origin and getattr(settings, 'CORS_ALLOWED_ORIGINS', None):
             if origin.rstrip('/') in [o.rstrip('/') for o in settings.CORS_ALLOWED_ORIGINS]:
                 redirect_uri = origin.rstrip('/') + '/login/callback'
-        
+        logger.info('Google OAuth redirect_uri=%s (add this exact URI in Google Cloud Console)', redirect_uri)
+
         # Build authorization URL
         params = {
             'client_id': settings.GOOGLE_DRIVE_CLIENT_ID,
@@ -2255,6 +2331,15 @@ class GoogleOAuthCallbackView(APIView):
             # Return current user (either newly logged in or existing)
             current_user = request.user if request.user.is_authenticated else user
             
+            # Persist tokens per user so Sync works when session cookie isn't sent (e.g. cross-origin)
+            UserGoogleDriveToken.objects.update_or_create(
+                user=current_user,
+                defaults={
+                    'access_token': access_token,
+                    'refresh_token': refresh_token,
+                }
+            )
+            
             # Set CSRF token in response for subsequent requests
             from django.middleware.csrf import get_token
             csrf_token = get_token(request)
@@ -2387,17 +2472,28 @@ class EvidenceFileViewSet(viewsets.ReadOnlyModelViewSet):
         evidence_file.review_notes = review_notes
         evidence_file.save()
         
+        # If all files in the submission are now approved, set submission status to APPROVED
+        submission = evidence_file.submission
+        all_approved = submission.files.exclude(status=EvidenceStatus.APPROVED).exists() is False
+        if all_approved and submission.files.exists():
+            submission.status = EvidenceStatus.APPROVED
+            submission.reviewed_by = request.user if request.user.is_authenticated else None
+            submission.reviewed_at = timezone.now()
+            submission.save()
+        
         # Upload file to Google Drive after approval
         category = evidence_file.submission.category
+        submission = evidence_file.submission
         upload_errors = []
         uploaded = False
         
         if category.google_drive_folder_id:
-            access_token = request.session.get('google_access_token')
-            refresh_token = request.session.get('google_refresh_token')
-            
+            # Use approver's tokens, or assignee/submitter's so approver doesn't need to have authenticated
+            access_token, refresh_token = get_google_drive_tokens_for_upload(
+                request, category=category, submission=submission
+            )
             if not access_token:
-                # Try to get token from any user's session
+                # Fallback: try to get token from any user's session
                 from django.contrib.sessions.models import Session
                 recent_sessions = Session.objects.filter(expire_date__gte=timezone.now())
                 for session in recent_sessions:
@@ -2436,19 +2532,37 @@ class EvidenceFileViewSet(viewsets.ReadOnlyModelViewSet):
                             evidence_file.save()
                             uploaded = True
                         except Exception as e:
-                            error_msg = f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}"
-                            logger.error(error_msg, exc_info=True)
-                            upload_errors.append(error_msg)
+                            err_str = str(e).lower()
+                            if 'unauthorized_client' in err_str or 'refresherror' in type(e).__name__.lower():
+                                upload_errors.append(
+                                    "Google Drive token is invalid or was issued by a different app. "
+                                    "Please click 'Authenticate' on the Category Groups page and sign in with Google again, then approve again."
+                                )
+                            else:
+                                upload_errors.append(f"Failed to upload {evidence_file.filename} to Google Drive: {str(e)}")
+                            logger.error(f"Failed to upload {evidence_file.filename} to Google Drive: {e}", exc_info=True)
                     elif evidence_file.google_drive_file_id:
                         uploaded = True  # Already uploaded
                 except Exception as e:
-                    error_msg = f"Failed to initialize Google Drive service: {str(e)}"
-                    logger.error(error_msg, exc_info=True)
-                    upload_errors.append(error_msg)
+                    err_str = str(e).lower()
+                    if 'unauthorized_client' in err_str or 'refresherror' in type(e).__name__.lower():
+                        upload_errors.append(
+                            "Google Drive token is invalid or was issued by a different app. "
+                            "Please click 'Authenticate' on the Category Groups page and sign in with Google again, then approve again."
+                        )
+                    else:
+                        upload_errors.append(f"Failed to initialize Google Drive service: {str(e)}")
+                    logger.error(f"Failed to initialize Google Drive service: {e}", exc_info=True)
             else:
-                upload_errors.append("Google Drive not authenticated. Please authenticate Google Drive first.")
+                upload_errors.append(
+                    "Google Drive not authenticated. Please click 'Authenticate' (green tick) on the Category Groups page "
+                    "and sign in with Google before approving, so files can be uploaded to Drive."
+                )
         else:
-            upload_errors.append("Google Drive folder not configured for this category.")
+            upload_errors.append(
+                "Google Drive folder not configured for this category. Please run 'Sync Google Drive folders' or "
+                "'Create Google Drive folders' from the Category Groups page first, then approve again."
+            )
         
         serializer = EvidenceFileSerializer(evidence_file, context={'request': request})
         response_data = serializer.data
@@ -2458,7 +2572,10 @@ class EvidenceFileViewSet(viewsets.ReadOnlyModelViewSet):
             response_data['upload_status'] = 'File approved and uploaded to Google Drive successfully.'
         if upload_errors:
             response_data['upload_errors'] = upload_errors
-            response_data['upload_warning'] = 'File approved, but could not be uploaded to Google Drive.'
+            response_data['upload_warning'] = (
+                'File approved, but could not be uploaded to Google Drive. '
+                'You can run Sync from the Category Groups page to upload it later.'
+            )
         
         return Response(response_data)
     

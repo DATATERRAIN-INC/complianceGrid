@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -307,3 +308,22 @@ class GoogleDriveFolderMapping(models.Model):
     
     def __str__(self):
         return f"Google Drive Folder Structure - {self.updated_at}"
+
+
+class UserGoogleDriveToken(models.Model):
+    """Store Google Drive OAuth tokens per user so Sync works when session cookie isn't sent (e.g. cross-origin)."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='google_drive_token'
+    )
+    access_token = models.TextField()
+    refresh_token = models.TextField(blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "User Google Drive Token"
+        verbose_name_plural = "User Google Drive Tokens"
+
+    def __str__(self):
+        return f"Google Drive token for {self.user.username}"

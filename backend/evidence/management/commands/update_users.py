@@ -56,6 +56,12 @@ class Command(BaseCommand):
                 'email': 'karthikeyanchandrakumar@dataterrain.com',
                 'first_name': 'Karthikeyan',
                 'last_name': 'C'
+            },
+            {
+                'username': 'mary',
+                'email': 'mary@dataterrain.com',
+                'first_name': 'Mary',
+                'last_name': 'M'
             }
         ]
 

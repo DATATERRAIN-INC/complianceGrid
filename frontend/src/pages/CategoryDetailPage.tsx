@@ -1,13 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Upload, File, X, AlertCircle, Edit, Eye, EyeOff, Save, ArrowLeft, User, CheckCircle, XCircle } from 'lucide-react';
-import { categoriesApi, CategoryDetail } from '../api/categories';
+import { categoriesApi, CategoryDetail, Submission } from '../api/categories';
 import { submissionsApi } from '../api/submissions';
 import { DatePickerModal } from '../components/DatePickerModal';
 import { Button } from '../components/Button';
 import { getReviewPeriodLabel } from '../utils/reviewPeriods';
 import toast from 'react-hot-toast';
 import { addDays, addMonths, addWeeks } from 'date-fns';
+
+const getGroupLabel = (code: string): string => {
+  const groupLabels: Record<string, string> = {
+    'ACCESS_CONTROLS': 'Access Controls',
+    'NETWORK_SECURITY': 'Network Security',
+    'PHYSICAL_SECURITY': 'Physical Security',
+    'DATA_PROTECTION': 'Data Protection',
+    'ENDPOINT_SECURITY': 'Endpoint Security',
+    'MONITORING_INCIDENT': 'Monitoring & Incident Response',
+    'INFRASTRUCTURE_CAPACITY': 'Infrastructure & Capacity',
+    'BACKUP_RECOVERY': 'Backup & Recovery',
+    'BUSINESS_CONTINUITY': 'Business Continuity',
+    'CONFIDENTIALITY': 'Confidentiality',
+    'CONTROL_ENVIRONMENT': 'Control Environment (CC1)',
+    'COMMUNICATION_INFO': 'Communication & Information (CC2)',
+    'RISK_ASSESSMENT': 'Risk Assessment (CC3)',
+    'MONITORING': 'Monitoring (CC4)',
+    'HR_TRAINING': 'Control Activities - HR & Training (CC5)',
+    'CHANGE_MANAGEMENT': 'Control Activities - Change Management (CC5)',
+    'VENDOR_MANAGEMENT': 'Control Activities - Vendor Management (CC5)',
+  };
+  return groupLabels[code] || code;
+};
 
 export const CategoryDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -501,16 +524,23 @@ export const CategoryDetailPage: React.FC = () => {
               </div>
             ) : (
               <>
-                <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center gap-3 mb-3">
                   <button
                     onClick={() => navigate('/')}
                     className="text-gray-600 hover:text-gray-900"
                   >
                     <ArrowLeft size={24} />
                   </button>
-                  <h1 className="text-3xl font-bold">{category.name}</h1>
+                  <div>
+                    <h1 className="text-3xl font-bold">{category.name}</h1>
+                    {category.category_group && (
+                      <p className="text-sm text-gray-600 font-semibold mt-2">
+                        Category group: {getGroupLabel(category.category_group)}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-start gap-3">
+                <div className="flex items-start gap-3 mt-2">
                   <div className="w-6"></div>
                   <p className="text-gray-600 mb-4 flex-1">{category.description}</p>
                 </div>
@@ -843,141 +873,74 @@ export const CategoryDetailPage: React.FC = () => {
           </div>
         )}
 
-      {/* Current Submission Files - For non-approvers */}
-      {!isEditing && !canReview && category.current_submission &&
-        category.current_submission.files.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 className="text-xl font-semibold mb-4">Submitted Files</h2>
-            <div className="space-y-2">
-              {category.current_submission.files.map((file) => (
-                <div
-                  key={file.id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded"
-                >
-                  <div className="flex items-center gap-2 flex-1">
-                    <File size={20} className="text-gray-400" />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">{file.filename}</span>
-                        <span className="text-sm text-gray-500">
-                          Uploaded: {new Date(file.uploaded_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                      {(file as any).submission_notes && (
-                        <p className="text-sm text-gray-700 mt-1 mr-1 text-justify whitespace-pre-line">
-                          <span className="font-medium">Submission Notes:</span> {(file as any).submission_notes}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <a
-                    href={file.file_url || file.google_drive_file_url || '#'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline text-sm"
-                  >
-                    {file.file_url ? 'View File' : 'View in Drive'}
-                  </a>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-      {/* Submission History */}
-      {!isEditing && category.past_submissions && category.past_submissions.length > 0 && (
+      {/* Submission History - approved evidence only; Timestamp | Document | Uploaded by | Approved by */}
+      {!isEditing && (() => {
+        const current = category.current_submission;
+        const past = category.past_submissions || [];
+        const currentId = current?.id;
+        const submissionsList = current && current.files?.length > 0
+          ? [current, ...past.filter((p: Submission) => p.id !== currentId)]
+          : past;
+        type HistoryEvent = { timestamp: Date; notes: React.ReactNode; uploadedBy: string; approvedBy: string; key: string };
+        const events: HistoryEvent[] = [];
+        submissionsList.forEach((submission) => {
+          submission.files?.forEach((file) => {
+            const fileStatus = (file as any).status || '';
+            if (fileStatus !== 'APPROVED') return;
+            const uploadedBy = file.uploaded_by ? (file.uploaded_by as { first_name?: string; username: string }).first_name || file.uploaded_by.username : submission.submitted_by ? (submission.submitted_by.first_name || submission.submitted_by.username) : '';
+            const approvedBy = (file as any).reviewed_by ? ((file as any).reviewed_by.first_name || (file as any).reviewed_by.username) : submission.reviewed_by ? (submission.reviewed_by.first_name || submission.reviewed_by.username) : '';
+            const reviewedAt = (file as any).reviewed_at ? new Date((file as any).reviewed_at) : submission.reviewed_at ? new Date(submission.reviewed_at) : null;
+            if (!reviewedAt) return;
+            const fileLink = (
+              <a href={file.file_url || file.google_drive_file_url || '#'} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">
+                {file.filename}
+              </a>
+            );
+            events.push({
+              key: `file-${file.id}-approved`,
+              timestamp: reviewedAt,
+              notes: fileLink,
+              uploadedBy,
+              approvedBy,
+            });
+          });
+        });
+        events.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        return events.length > 0 ? (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Submission History</h2>
-          <div className="space-y-4">
-            {category.past_submissions.map((submission) => (
-              <div
-                key={submission.id}
-                className="border border-gray-200 rounded-lg p-4"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <span className="text-sm font-medium text-gray-900">
-                      Period: {new Date(submission.period_start_date).toLocaleDateString()} - {new Date(submission.period_end_date).toLocaleDateString()}
-                    </span>
-                    {submission.submitted_by && (
-                      <span className="text-xs text-gray-700 ml-2 capitalize">
-                        by {submission.submitted_by.first_name || submission.submitted_by.username}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-left text-gray-500 font-medium">
+                  <th className="py-3 pr-4">Timestamp</th>
+                  <th className="py-3 pr-4">Document</th>
+                  <th className="py-3 pr-4">Uploaded by</th>
+                  <th className="py-3">Approved by</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((ev) => (
+                  <tr key={ev.key} className="border-b border-gray-100 hover:bg-gray-50/50">
+                    <td className="py-3 pr-4 text-gray-600 whitespace-nowrap">
+                      {ev.timestamp.toLocaleDateString()}, {ev.timestamp.toLocaleTimeString()}
+                    </td>
+                    <td className="py-3 pr-4">
+                      <span className="inline-flex items-center gap-2">
+                        <CheckCircle size={16} className="text-green-600 shrink-0" aria-hidden />
+                        <span className="text-gray-800">{ev.notes}</span>
                       </span>
-                    )}
-                  </div>
-                  {/* <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    submission.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
-                    submission.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
-                    submission.status === 'SUBMITTED' ? 'bg-blue-100 text-blue-800' :
-                    'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {submission.status}
-                  </span> */}
-                </div>
-                {submission.files && submission.files.length > 0 && (
-                  <div className="mt-2">
-                    <p className="text-base text-black mb-2">Files:</p>
-                    <div className="space-y-2">
-                      {submission.files.map((file) => {
-                        const fileStatus = (file as any).status || 'SUBMITTED';
-                        return (
-                          <div key={file.id} className="pl-2 border-l-2 border-gray-200">
-                            <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 mb-1">
-                              <a
-                                href={file.file_url || file.google_drive_file_url || '#'}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-sm text-blue-600 hover:underline font-medium"
-                              >
-                                {file.filename}
-                              </a>
-                              <span className="text-sm text-gray-500">
-                                Uploaded At: {new Date(file.uploaded_at).toLocaleDateString()}
-                              </span>
-                              {file.uploaded_by && (
-                                <span className="text-xs text-gray-700 ml-2 capitalize">
-                                  by {file.uploaded_by.username}
-                                </span>
-                              )}
-                            </div>
-                            <span className={`px-2 py-0.5 rounded-full text-sm font-medium ${
-                                fileStatus === 'APPROVED' ? 'bg-green-100 text-green-800' :
-                                fileStatus === 'REJECTED' ? 'bg-red-100 text-red-800' :
-                                'bg-yellow-100 text-yellow-800'
-                              }`}>
-                                {fileStatus}
-                              </span>
-                              </div>
-                            {(file as any).submission_notes && (
-                              <div className="text-sm text-gray-600 mt-1 ml-0">
-                                <span className="font-medium">Submission Notes:</span>{' '}
-                                <span className="whitespace-pre-line">{((file as any).submission_notes)}</span>
-                              </div>
-                            )}
-                            {(file as any).review_notes && (
-                              <div className="text-sm text-gray-500 mt-1 ml-0">
-                                <span className="font-medium">Review Notes:</span>{' '}
-                                <span >{((file as any).review_notes)}</span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {submission.submitted_at && (
-                  <p className="text-xs text-gray-500 mt-2">
-                    Submitted: {new Date(submission.submitted_at).toLocaleString()}
-                  </p>
-                )}
-              </div>
-            ))}
+                    </td>
+                    <td className="py-3 pr-4 text-gray-700">{ev.uploadedBy}</td>
+                    <td className="py-3 text-gray-700">{ev.approvedBy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
+        ) : null;
+      })()}
 
       {/* Comments Section */}
       {category.current_submission &&

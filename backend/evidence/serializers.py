@@ -101,18 +101,41 @@ class EvidenceCategorySerializer(serializers.ModelSerializer):
                   'current_submission', 'past_submissions', 'compliance_score']
     
     def get_current_submission(self, obj):
-        """Get the current/active submission with files filtered to include status 'PENDING', 'SUBMITTED', or 'UNDER_REVIEW'."""
+        """Get the current/active submission. Use most recent activity (reviewed_at/submitted_at) so approved submission shows correctly."""
         try:
             from .models import EvidenceStatus, EvidenceSubmission
             from django.utils import timezone
+            from django.db.models import F
+            from django.db.models.functions import Coalesce
             from datetime import timedelta
             
-            # Get the active submission (PENDING, SUBMITTED, or UNDER_REVIEW)
-            submission = obj.submissions.filter(
-                status__in=[EvidenceStatus.PENDING, EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW]
-            ).order_by('-due_date').first()
+            # Prefer the submission with the most recent activity (reviewed_at, then submitted_at, then due_date)
+            # so that after approval we show the approved one, not a different PENDING with a later due_date
+            submission = (
+                obj.submissions
+                .annotate(
+                    last_activity=Coalesce(F('reviewed_at'), F('submitted_at'), F('created_at'))
+                )
+                .order_by('-last_activity', '-due_date')
+                .first()
+            )
             
-            # If no active submission exists, create one
+            # If we have an APPROVED/REJECTED submission, return it so UI shows correct status
+            if submission and submission.status in [EvidenceStatus.APPROVED, EvidenceStatus.REJECTED]:
+                submission_data = EvidenceSubmissionSerializer(submission, context=self.context).data
+                files = submission_data.get('files') or []
+                submission_data['files'] = [
+                    f for f in files
+                    if f.get('status') in [EvidenceStatus.APPROVED, EvidenceStatus.REJECTED, EvidenceStatus.PENDING,
+                                          EvidenceStatus.SUBMITTED, EvidenceStatus.UNDER_REVIEW]
+                ]
+                return submission_data
+            
+            # If we have PENDING/SUBMITTED/UNDER_REVIEW, use it (and filter files below)
+            if submission:
+                pass  # fall through to serialize below
+            
+            # If still no submission, create one
             if not submission:
                 today = timezone.now().date()
                 
