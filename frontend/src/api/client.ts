@@ -85,12 +85,9 @@ apiClient.interceptors.request.use(
     const isCsrfEndpoint = config.url?.includes('/auth/csrf/');
     
     if (isStateChanging && !isLogin && !isCsrfEndpoint) {
-      // Use cookie (same-origin) or token from API response (cross-origin)
-      let csrfToken = getCsrfToken();
-      // If no token, fetch one (or wait for in-flight fetch) so we never send without token
-      if (!csrfToken) {
-        csrfToken = await fetchCsrfToken();
-      }
+      // Always fetch fresh CSRF token before each state-changing request so we never send
+      // a stale token (Django may rotate the token after use, especially cross-origin).
+      const csrfToken = await fetchCsrfToken();
       if (csrfToken) {
         config.headers['X-CSRFToken'] = csrfToken;
       } else {
@@ -140,8 +137,9 @@ apiClient.interceptors.response.use(
         const errorText = errorMessage.toLowerCase();
         
         // Only retry if it's definitely a CSRF error
-        // Django CSRF errors typically mention "CSRF" or "origin checking failed"
+        // Django CSRF errors: "CSRF", "incorrect", "missing", "origin checking failed"
         const isDefinitelyCsrfError = errorText.includes('csrf') || 
+                                      errorText.includes('incorrect') ||
                                       errorText.includes('origin checking failed') ||
                                       errorText.includes('csrf token missing') ||
                                       errorText.includes('csrf verification failed');
@@ -151,6 +149,8 @@ apiClient.interceptors.response.use(
           try {
             // Mark this request as retried BEFORE making the retry
             retryAttempts.set(requestKey, retryCount + 1);
+            // Clear cached token so we get a fresh one (Django may have rotated it)
+            csrfTokenFromApi = null;
             
             // Fetch new CSRF token
             const csrfToken = await fetchCsrfToken();
