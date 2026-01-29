@@ -51,14 +51,14 @@ APPEND_SLASH = True
 CSRF_COOKIE_NAME = 'csrftoken'
 CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read it
 CSRF_USE_SESSIONS = False  # Use cookie-based CSRF tokens
-CSRF_COOKIE_SAMESITE = 'Lax'  # Allow cross-site requests for development
-CSRF_COOKIE_SECURE = True  # Set to True in production with HTTPS
+CSRF_COOKIE_SAMESITE = 'None'  # Required for cross-origin (frontend on different domain)
+CSRF_COOKIE_SECURE = True  # Required when SameSite=None
 
 # Session cookie settings
 SESSION_COOKIE_NAME = 'sessionid'
 SESSION_COOKIE_HTTPONLY = True  # Session cookie should be httpOnly for security
-SESSION_COOKIE_SAMESITE = 'Lax'  # Allow cross-site requests for development
-SESSION_COOKIE_SECURE = True  # Set to True in production with HTTPS
+SESSION_COOKIE_SAMESITE = 'None'  # Required for cross-origin (frontend on different domain)
+SESSION_COOKIE_SECURE = True  # Required when SameSite=None
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 7 days
 SESSION_SAVE_EVERY_REQUEST = False
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
@@ -218,9 +218,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://compliancegrid.dataterrain-demo.net/",
 ]
 
-# CSRF cookie settings
-CSRF_COOKIE_SAMESITE = 'Lax'  # Allow cross-site requests for development
-CSRF_COOKIE_SECURE = True  # Set to True in production with HTTPS
+# CSRF cookie settings (duplicate removed; see top of file)
 
 # Email configuration
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

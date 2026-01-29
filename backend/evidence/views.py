@@ -2029,8 +2029,8 @@ class AuthView(viewsets.ViewSet):
             csrf_token,
             max_age=60 * 60 * 24 * 7,  # 7 days
             httponly=False,
-            samesite='Lax',
-            secure=False
+            samesite=getattr(settings, 'CSRF_COOKIE_SAMESITE', 'Lax'),
+            secure=getattr(settings, 'CSRF_COOKIE_SECURE', False),
         )
         return response
     

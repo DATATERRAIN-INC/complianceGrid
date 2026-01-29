@@ -26,42 +26,47 @@ const apiClient = axios.create({
 
 // Track if CSRF token fetch is in progress to avoid multiple simultaneous requests
 let csrfTokenFetching = false;
-let csrfTokenPromise: Promise<void> | null = null;
+let csrfTokenPromise: Promise<string | null> | null = null;
 
-// Get CSRF token from Django cookie
+// CSRF token from API response (used when cross-origin - cookie not readable by frontend)
+let csrfTokenFromApi: string | null = null;
+
+// Get CSRF token from Django cookie (same-origin) or from last API response (cross-origin)
 const getCsrfToken = (): string | null => {
-  if (typeof document === 'undefined') return null;
-  
-  const cookies = document.cookie.split(';');
-  for (let cookie of cookies) {
-    const [name, value] = cookie.trim().split('=');
-    if (name === 'csrftoken' || name === 'csrf_token') {
-      return decodeURIComponent(value);
+  if (typeof document !== 'undefined') {
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrftoken' || name === 'csrf_token') {
+        const v = decodeURIComponent(value);
+        if (v) return v;
+      }
     }
   }
-  return null;
+  return csrfTokenFromApi;
 };
 
-// Fetch CSRF token from server if needed
+// Fetch CSRF token from server; use response body so it works cross-origin (cookie not readable)
 const fetchCsrfToken = async (): Promise<string | null> => {
   if (csrfTokenFetching && csrfTokenPromise) {
-    await csrfTokenPromise;
-    return getCsrfToken();
+    return csrfTokenPromise;
   }
-  
   csrfTokenFetching = true;
-  // Use apiClient to ensure correct baseURL is used
-  csrfTokenPromise = apiClient.get('/auth/csrf/').then(() => {
-    csrfTokenFetching = false;
-    csrfTokenPromise = null;
-  }).catch((error) => {
-    csrfTokenFetching = false;
-    csrfTokenPromise = null;
-    console.error('Failed to fetch CSRF token:', error);
-  });
-  
-  await csrfTokenPromise;
-  return getCsrfToken();
+  csrfTokenPromise = apiClient.get<{ csrfToken?: string }>('/auth/csrf/')
+    .then((res) => {
+      const token = res?.data?.csrfToken ?? null;
+      if (token) csrfTokenFromApi = token;
+      return token;
+    })
+    .catch((error) => {
+      console.error('Failed to fetch CSRF token:', error);
+      return null;
+    })
+    .finally(() => {
+      csrfTokenFetching = false;
+      csrfTokenPromise = null;
+    });
+  return csrfTokenPromise;
 };
 
 // Request interceptor for adding CSRF token
