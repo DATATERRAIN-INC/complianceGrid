@@ -85,15 +85,12 @@ apiClient.interceptors.request.use(
     const isCsrfEndpoint = config.url?.includes('/auth/csrf/');
     
     if (isStateChanging && !isLogin && !isCsrfEndpoint) {
-      // Always try to get token from cookie first
+      // Use cookie (same-origin) or token from API response (cross-origin)
       let csrfToken = getCsrfToken();
-      
-      // If no token, fetch one
-      if (!csrfToken && !csrfTokenFetching) {
+      // If no token, fetch one (or wait for in-flight fetch) so we never send without token
+      if (!csrfToken) {
         csrfToken = await fetchCsrfToken();
       }
-      
-      // Set the token in the header (Axios will handle the header name case)
       if (csrfToken) {
         config.headers['X-CSRFToken'] = csrfToken;
       } else {
