@@ -6,17 +6,12 @@ from dateutil.relativedelta import relativedelta
 
 
 class ReviewPeriod(models.TextChoices):
+    """Only these 6 duration options are supported. Other values are stored as null."""
     DAILY = 'DAILY', 'Daily'
-    DAILY_WEEKLY = 'DAILY_WEEKLY', 'Daily/Weekly'
     WEEKLY = 'WEEKLY', 'Weekly'
-    WEEKLY_MONTHLY = 'WEEKLY_MONTHLY', 'Weekly/Monthly'
     MONTHLY = 'MONTHLY', 'Monthly'
-    REGULAR = 'REGULAR', 'Regular'
-    REGULAR_MONTHLY = 'REGULAR_MONTHLY', 'Regular - meeting monthly'
-    MONTHLY_QUARTERLY = 'MONTHLY_QUARTERLY', 'Monthly/Quarterly'
     QUARTERLY = 'QUARTERLY', 'Quarterly'
-    HALF_YEARLY_QUARTERLY = 'HALF_YEARLY_QUARTERLY', 'Half yearly/Quarterly'
-    QUARTERLY_HALFYEARLY_ANNUALLY = 'QUARTERLY_HALFYEARLY_ANNUALLY', 'Quarterly/Halfyearly/Annually'
+    HALF_YEARLY_QUARTERLY = 'HALF_YEARLY_QUARTERLY', 'Half yearly'
     ANNUALLY = 'ANNUALLY', 'Annually'
 
 
@@ -58,7 +53,7 @@ class EvidenceCategory(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField()
     evidence_requirements = models.TextField()
-    review_period = models.CharField(max_length=50, choices=ReviewPeriod.choices)
+    review_period = models.CharField(max_length=50, choices=ReviewPeriod.choices, null=True, blank=True)
     category_group = models.CharField(max_length=50, choices=CategoryGroup.choices, default=CategoryGroup.UNCATEGORIZED)
     google_drive_folder_id = models.CharField(max_length=255, blank=True)
     assigned_reviewers = models.ManyToManyField(User, related_name='assigned_categories', blank=True)
@@ -80,32 +75,22 @@ class EvidenceCategory(models.Model):
             else:
                 base_date = timezone.datetime.combine(from_date, timezone.datetime.min.time())
         
-        if self.review_period == ReviewPeriod.DAILY:
+        if not self.review_period:
+            result = base_date + relativedelta(months=1)  # null → treat as monthly
+        elif self.review_period == ReviewPeriod.DAILY:
             result = base_date + timezone.timedelta(days=1)
-        elif self.review_period == ReviewPeriod.DAILY_WEEKLY:
-            result = base_date + timezone.timedelta(days=1)  # Daily for daily/weekly
         elif self.review_period == ReviewPeriod.WEEKLY:
             result = base_date + timezone.timedelta(days=7)
-        elif self.review_period == ReviewPeriod.WEEKLY_MONTHLY:
-            result = base_date + relativedelta(months=1)  # Monthly for weekly/monthly
         elif self.review_period == ReviewPeriod.MONTHLY:
             result = base_date + relativedelta(months=1)
-        elif self.review_period == ReviewPeriod.REGULAR:
-            result = base_date + relativedelta(months=1)  # Default to monthly for regular
-        elif self.review_period == ReviewPeriod.REGULAR_MONTHLY:
-            result = base_date + relativedelta(months=1)
-        elif self.review_period == ReviewPeriod.MONTHLY_QUARTERLY:
-            result = base_date + relativedelta(months=3)  # Quarterly for monthly/quarterly
         elif self.review_period == ReviewPeriod.QUARTERLY:
             result = base_date + relativedelta(months=3)
         elif self.review_period == ReviewPeriod.HALF_YEARLY_QUARTERLY:
-            result = base_date + relativedelta(months=6)  # Half yearly
-        elif self.review_period == ReviewPeriod.QUARTERLY_HALFYEARLY_ANNUALLY:
-            result = base_date + relativedelta(months=12)  # Annually
+            result = base_date + relativedelta(months=6)
         elif self.review_period == ReviewPeriod.ANNUALLY:
             result = base_date + relativedelta(months=12)
         else:
-            result = base_date + relativedelta(months=1)  # Default to monthly
+            result = base_date + relativedelta(months=1)  # unknown → monthly
         
         # Return date object
         if isinstance(result, timezone.datetime):

@@ -16,7 +16,7 @@ DESCRIPTION = "Control description here"
 EVIDENCE_REQUIREMENTS = "Evidence requirements here"
 ASSIGNED_TO_USERNAME = None  # e.g., "monisa" or None
 
-# Duration mapping
+# Only these 6 duration options are supported. Any other value → review_period = None.
 duration_map = {
     'Daily': ReviewPeriod.DAILY,
     'daily': ReviewPeriod.DAILY,
@@ -26,14 +26,15 @@ duration_map = {
     'monthly': ReviewPeriod.MONTHLY,
     'Quarterly': ReviewPeriod.QUARTERLY,
     'quarterly': ReviewPeriod.QUARTERLY,
-    'Half Yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
+    'Half yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
     'half yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
+    'Half Yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
     'Annually': ReviewPeriod.ANNUALLY,
     'annually': ReviewPeriod.ANNUALLY,
 }
 
-# Get review period
-review_period = duration_map.get(DURATION) or duration_map.get(DURATION.lower()) or ReviewPeriod.MONTHLY
+# Get review period (None if invalid)
+review_period = duration_map.get(DURATION) or duration_map.get((DURATION or '').strip().lower()) if DURATION else None
 
 # Get category group
 category_group = getattr(CategoryGroup, SECURITY_GROUP, CategoryGroup.UNCATEGORIZED)
@@ -46,23 +47,22 @@ if ASSIGNED_TO_USERNAME:
     except User.DoesNotExist:
         print(f"Warning: User '{ASSIGNED_TO_USERNAME}' not found. Creating control without assignee.")
 
-# Create the control
-category, created = EvidenceCategory.objects.get_or_create(
-    name=CONTROL_NAME,
-    defaults={
-        'description': DESCRIPTION,
-        'evidence_requirements': EVIDENCE_REQUIREMENTS,
-        'review_period': review_period,
-        'category_group': category_group,
-        'is_active': True,
-        'assignee': assignee,
-    }
-)
+# Create the control (review_period can be None for invalid duration)
+defaults = {
+    'description': DESCRIPTION,
+    'evidence_requirements': EVIDENCE_REQUIREMENTS,
+    'category_group': category_group,
+    'is_active': True,
+    'assignee': assignee,
+}
+if review_period is not None:
+    defaults['review_period'] = review_period
+category, created = EvidenceCategory.objects.get_or_create(name=CONTROL_NAME, defaults=defaults)
 
 if created:
     print(f"✓ Successfully created control: {CONTROL_NAME}")
     print(f"  - Group: {category_group.label}")
-    print(f"  - Duration: {review_period.label}")
+    print(f"  - Duration: {review_period.label if review_period else '(not set)'}")
     if assignee:
         print(f"  - Assigned to: {assignee.username}")
 else:

@@ -317,7 +317,7 @@ class UpcomingDeadlineSerializer(serializers.Serializer):
     control_name = serializers.CharField()
     due_date = serializers.DateField()
     days_until_due = serializers.IntegerField()
-    review_period = serializers.CharField()
+    review_period = serializers.CharField(allow_null=True)
     assignee_name = serializers.CharField(allow_null=True)
     status = serializers.CharField()
 

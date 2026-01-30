@@ -18,20 +18,19 @@ Your CSV file should have these columns (column names can vary):
 ```csv
 Control Short,Duration,To Do,Evidence,Assigned to
 Code of Conduct,Annually,Update all the policy into keka and get acknowledgement,Employee handbook and acknowledged employee handbook,Preeja
-Signed NDA,Regular,Non-Disclosure Agreement management,Employee handbook and acknowledged employee handbook,HR
+Signed NDA,Monthly,Non-Disclosure Agreement management,Employee handbook and acknowledged employee handbook,HR
 ISMS Policy,Annually,Information Security Management System policy,Policy documentation and acknowledgements,Monisa
 ```
 
-### Duration Values Supported (case-insensitive):
-- `Daily` → Daily
-- `Weekly` → Weekly
-- `Monthly` → Monthly
-- `Quarterly` → Quarterly
-- `Half Yearly` / `Half yearly/Quarterly` → Half yearly/Quarterly
-- `Annually` → Annually
-- `Regular` → Regular
+### Duration values (only these 6 are supported; case-insensitive):
+- `Daily`
+- `Weekly`
+- `Monthly`
+- `Quarterly`
+- `Half yearly` (or `Half Yearly`)
+- `Annually`
 
-**Note:** Unrecognized values default to Monthly.
+**Note:** Any other value in the CSV is stored as null (no duration set).
 
 ## Step 2: Save Your CSV File
 
@@ -54,11 +53,17 @@ Open a terminal/PowerShell in the `backend` folder and run:
 # Activate virtual environment (if not already activated)
 .\venv\Scripts\Activate.ps1
 
-# Run full refresh (uses backend/all_categories.csv by default)
+# Run full refresh with the CSV (from backend folder)
+python manage.py full_refresh --csv all_categories.csv
+```
+
+Or use the default (looks for `all_categories.csv` in the backend directory):
+
+```bash
 python manage.py full_refresh
 ```
 
-Or with a custom CSV path:
+With a custom CSV path:
 
 ```bash
 python manage.py full_refresh --csv path/to/all_categories.csv
@@ -122,7 +127,7 @@ The command supports these column name variations:
    ```powershell
    cd backend
    .\venv\Scripts\Activate.ps1
-   python manage.py full_refresh
+   python manage.py full_refresh --csv all_categories.csv
    ```
 
 3. **Generate submissions (optional):**

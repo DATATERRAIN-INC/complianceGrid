@@ -39,6 +39,7 @@ USERS_TO_KEEP = [
     {'username': 'mary', 'email': 'mary@dataterrain.com', 'first_name': 'Mary', 'last_name': 'M'},
 ]
 
+# Only these 6 duration values are supported. Any other CSV value → review_period = null.
 DURATION_MAP = {
     'Daily': ReviewPeriod.DAILY,
     'daily': ReviewPeriod.DAILY,
@@ -48,17 +49,11 @@ DURATION_MAP = {
     'monthly': ReviewPeriod.MONTHLY,
     'Quarterly': ReviewPeriod.QUARTERLY,
     'quarterly': ReviewPeriod.QUARTERLY,
-    'Half Yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
+    'Half yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
     'half yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
-    'Half yearly/Quarterly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
+    'Half Yearly': ReviewPeriod.HALF_YEARLY_QUARTERLY,
     'Annually': ReviewPeriod.ANNUALLY,
     'annually': ReviewPeriod.ANNUALLY,
-    'Regular': ReviewPeriod.REGULAR,
-    'regular': ReviewPeriod.REGULAR,
-    'Weekly/Monthly': ReviewPeriod.WEEKLY_MONTHLY,
-    'Monthly/Quarterly': ReviewPeriod.MONTHLY_QUARTERLY,
-    'Quarterly/Halfyearly/Annually': ReviewPeriod.QUARTERLY_HALFYEARLY_ANNUALLY,
-    'Daily/Weekly': ReviewPeriod.DAILY_WEEKLY,
 }
 
 
@@ -200,9 +195,10 @@ class Command(BaseCommand):
                     to_do = (row.get('To Do') or '').strip() or name
                     evidence = (row.get('Evidence') or '').strip() or 'No specific requirements provided'
                     assigned_str = (row.get('Assigned to') or row.get('Assigned') or '').strip()
-                    review_period = DURATION_MAP.get(duration_str) or DURATION_MAP.get(duration_str.lower()) if duration_str else ReviewPeriod.MONTHLY
-                    if not review_period:
-                        review_period = ReviewPeriod.MONTHLY
+                    # Only the 6 allowed values; any other → null
+                    review_period = None
+                    if duration_str:
+                        review_period = DURATION_MAP.get(duration_str) or DURATION_MAP.get(duration_str.strip().lower())
                     assignee = None
                     if assigned_str and not dry_run:
                         assignee = find_user_by_assignee_name(assigned_str)
@@ -212,17 +208,16 @@ class Command(BaseCommand):
                         else:
                             created_count += 1
                         continue
-                    category, created = EvidenceCategory.objects.get_or_create(
-                        name=name,
-                        defaults={
-                            'description': to_do,
-                            'evidence_requirements': evidence,
-                            'review_period': review_period,
-                            'is_active': True,
-                            'approver': default_approver,
-                            'assignee': assignee,
-                        },
-                    )
+                    defaults = {
+                        'description': to_do,
+                        'evidence_requirements': evidence,
+                        'is_active': True,
+                        'approver': default_approver,
+                        'assignee': assignee,
+                    }
+                    if review_period is not None:
+                        defaults['review_period'] = review_period
+                    category, created = EvidenceCategory.objects.get_or_create(name=name, defaults=defaults)
                     if created:
                         created_count += 1
                     else:

@@ -45,7 +45,10 @@ class Command(BaseCommand):
             'annually': ReviewPeriod.ANNUALLY,
         }
 
-        review_period = duration_map.get(duration) or duration_map.get(duration.lower()) or ReviewPeriod.MONTHLY
+        # Only the 6 allowed values; invalid → null
+        review_period = duration_map.get(duration) or duration_map.get(duration.lower())
+        if review_period is None:
+            self.stdout.write(self.style.WARNING(f"Duration '{duration}' is not one of: Daily, Weekly, Monthly, Quarterly, Half yearly, Annually. Setting review_period to null."))
         category_group = getattr(CategoryGroup, group_code, CategoryGroup.UNCATEGORIZED)
 
         # Get assignee if provided
@@ -80,7 +83,7 @@ class Command(BaseCommand):
         if created:
             self.stdout.write(self.style.SUCCESS(f'[SUCCESS] Successfully created control: {name}'))
             self.stdout.write(f'  - Group: {category_group.label}')
-            self.stdout.write(f'  - Duration: {review_period.label}')
+            self.stdout.write(f'  - Duration: {review_period.label if review_period else "(not set)"}')
             if assignee:
                 self.stdout.write(f'  - Assigned to: {assignee.username}')
         else:

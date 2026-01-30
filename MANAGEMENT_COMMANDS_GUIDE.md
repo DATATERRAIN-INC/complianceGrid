@@ -26,6 +26,13 @@ This guide lists all available Django management commands for the compliance evi
 One command that clears submission history, removes local documents, updates users, imports/refreshes controls from CSV, and sets the default approver.
 
 ```bash
+# With CSV (run from backend folder where all_categories.csv is)
+python manage.py full_refresh --csv all_categories.csv
+```
+
+Or use default (looks for all_categories.csv in backend):
+
+```bash
 python manage.py full_refresh
 ```
 
@@ -168,8 +175,8 @@ python manage.py remove_extra_categories all_categories.csv --dry-run
 cd backend
 venv\Scripts\activate   # Windows (or source venv/bin/activate on Linux/Mac)
 
-# 1. Full refresh: users, controls from CSV, default approver (CSV = backend/all_categories.csv)
-python manage.py full_refresh
+# 1. Full refresh: users, controls from CSV, default approver (run from backend)
+python manage.py full_refresh --csv all_categories.csv
 
 # 2. Optional: assign category groups if you use them
 python manage.py assign_category_groups
@@ -189,8 +196,8 @@ python manage.py send_reminders
 ### After Updating all_categories.csv (Full Reset)
 
 ```bash
-# Reset everything and re-import from CSV
-python manage.py full_refresh
+# Reset everything and re-import from CSV (run from backend)
+python manage.py full_refresh --csv all_categories.csv
 
 # Optional: reassign category groups, then submissions
 python manage.py assign_category_groups
