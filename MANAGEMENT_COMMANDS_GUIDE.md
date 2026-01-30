@@ -1,6 +1,6 @@
 # Management Commands Guide
 
-This guide lists all available Django management commands for updating users, categories, and managing the application.
+This guide lists all available Django management commands for the compliance evidence application.
 
 ## Prerequisites
 
@@ -20,120 +20,56 @@ This guide lists all available Django management commands for updating users, ca
 
 ---
 
-## User Management Commands
+## Full Refresh (Recommended for Setup & Reset)
 
-### 1. Update Users
-Updates user profiles and removes other users from assignee/approver fields.
+### full_refresh
+One command that clears submission history, removes local documents, updates users, imports/refreshes controls from CSV, and sets the default approver.
 
 ```bash
-python manage.py update_users
+python manage.py full_refresh
+```
+
+**With custom CSV path:**
+```bash
+python manage.py full_refresh --csv path/to/all_categories.csv
+```
+
+**Preview only (no changes):**
+```bash
+python manage.py full_refresh --dry-run
 ```
 
 **What it does:**
-- Updates or creates predefined users (sakthi, monisa, manoj, preeja, etc.)
-- Sets default password: `Data@123`
-- Removes other users from assignee/approver fields
-- Deletes other user accounts
+1. **Clear submission history** – Deletes all submissions, files, comments, reminders, and related notifications
+2. **Remove local documents** – Deletes all files in `media/evidence_files/`
+3. **Update users** – Syncs the predefined user list (sakthi, monisa, manoj, preeja, murugesh, vinothkumar, ajithkumar, karthikeyan, mary); removes others from assignee/approver and deletes other accounts
+4. **Import/refresh controls** – Reads `all_categories.csv` (or `--csv` path) and creates or updates controls with: Control Short, Duration, To Do, Evidence, Assigned to
+5. **Set default approver** – Sets Manoj as approver for all active controls that don’t have one
 
 **When to use:**
 - Initial setup
-- When you need to reset user passwords
-- When cleaning up old user accounts
+- After updating `all_categories.csv` and you want a clean reset
+- When you want to wipe submission history and re-import from CSV
+
+**CSV format:** See `IMPORT_INSTRUCTIONS.md` for column names and duration values.
 
 ---
 
 ## Category/Control Management Commands
 
-### 2. Import Controls from CSV
-Import categories/controls from a CSV file.
-
-```bash
-python manage.py import_controls_csv all_categories.csv --create-users
-```
+### add_control
+Add a single control manually (e.g. from Django shell or a one-off script).
 
 **What it does:**
-- Creates/updates categories from CSV file
-- Sets review periods (Daily, Weekly, Monthly, Quarterly, Half Yearly, Annually)
-- Assigns assignees to categories
-- Sets Manoj as default approver
-- Optionally creates user accounts if `--create-users` flag is used
+- Creates one control with name, group, duration, description, evidence, assignee
+- Used by the standalone script in `backend/add_control.py` (configure variables and run via shell)
 
 **When to use:**
-- Initial import of controls
-- Bulk update of controls from CSV
-- Adding new controls
+- Adding one control without changing the CSV
+- Quick tests
 
-**CSV Format:** See `IMPORT_INSTRUCTIONS.md` for details
-
-### 3. Add a Single Control
-Add one control manually.
-
-```bash
-python manage.py add_control --name "Control Name" --group "SECURITY" --duration "Monthly" --description "Description" --evidence "Evidence requirements" --assignee "username"
-```
-
-**What it does:**
-- Creates a single control with all specified fields
-- Sets Manoj as default approver
-
-**When to use:**
-- Adding a single control quickly
-- Testing control creation
-
-### 4. Update Assignees
-Update assignees for specific controls.
-
-```bash
-python manage.py update_assignees
-```
-
-**What it does:**
-- Updates assignees for a hardcoded list of controls
-- Matches controls by name (flexible matching)
-
-**When to use:**
-- Bulk updating assignees for specific controls
-- Reassigning controls to different users
-
-### 5. Update Controls from CSV
-Update both assignee and duration for controls.
-
-```bash
-python manage.py update_controls_from_csv
-```
-
-**What it does:**
-- Updates assignee and review period for a hardcoded list of controls
-- Matches controls by name (flexible matching)
-
-**When to use:**
-- Bulk updating both assignee and duration
-- When you have a list of controls to update
-
-### 6. Set Default Approver
-Set Manoj as the default approver for all controls without an approver.
-
-```bash
-python manage.py set_default_approver
-```
-
-**Options:**
-- `--force`: Update all controls, even if they already have an approver
-
-```bash
-python manage.py set_default_approver --force
-```
-
-**What it does:**
-- Sets Manoj as approver for controls without an approver
-- With `--force`, updates all controls
-
-**When to use:**
-- After importing controls
-- When you need to ensure all controls have an approver
-
-### 7. Assign Category Groups
-Assign category groups to controls based on CSV.
+### assign_category_groups
+Assign category groups (e.g. ACCESS_CONTROLS, NETWORK_SECURITY) to controls based on CSV.
 
 ```bash
 python manage.py assign_category_groups
@@ -145,43 +81,19 @@ python manage.py assign_category_groups --csv-file all_categories.csv
 ```
 
 **What it does:**
-- Assigns category groups (ACCESS_CONTROLS, NETWORK_SECURITY, DATA_PROTECTION, etc.) to controls
+- Maps control numbers from CSV to category groups
 - Uses `all_categories.csv` by default (must have "No" and "Control Short" columns)
-- Maps control numbers to predefined category groups
 
 **When to use:**
 - Organizing controls into compliance groups
-- After importing controls
-
-### 8. Assign Users to Categories
-Assign users to categories from CSV.
-
-```bash
-python manage.py assign_users_to_categories all_categories.csv
-```
-
-**Or with user creation:**
-```bash
-python manage.py assign_users_to_categories all_categories.csv --create-users
-```
-
-**What it does:**
-- Assigns users to categories based on CSV file
-- CSV should have "Control Short" and "Assigned to" columns
-- Uses `all_categories.csv` (which contains these columns)
-- Optionally creates user accounts if `--create-users` flag is used
-
-**When to use:**
-- Bulk assigning users to controls
-- Reassigning controls to different users
-- After importing controls to set assignees
+- After a full refresh if you use category groups
 
 ---
 
 ## Submission Management Commands
 
-### 9. Generate Submissions
-Automatically generate submission records for active categories.
+### generate_submissions
+Create submission records for active categories.
 
 ```bash
 python manage.py generate_submissions
@@ -189,15 +101,14 @@ python manage.py generate_submissions
 
 **What it does:**
 - Creates submission records for all active categories
-- Calculates due dates based on review periods
-- Only creates if no active submission exists or current one has ended
+- Calculates due dates from review periods
+- Only creates when no active submission exists or the current one has ended
 
 **When to use:**
-- Initial setup
-- Daily/weekly (can be scheduled)
-- After creating new categories
+- After full refresh or when new categories are added
+- Can be run daily (e.g. scheduled)
 
-### 10. Send Reminders
+### send_reminders
 Send email reminders for upcoming and overdue submissions.
 
 ```bash
@@ -205,14 +116,12 @@ python manage.py send_reminders
 ```
 
 **What it does:**
-- Sends emails 1 day before due date
-- Sends emails 1 day after due date (if overdue)
+- Sends emails 1 day before and 1 day after due date
 - Creates in-app notifications
-- Prevents duplicate emails
+- Avoids duplicate emails
 
 **When to use:**
-- Daily (should be scheduled via Windows Task Scheduler)
-- Manual testing
+- Daily (e.g. via Windows Task Scheduler) or for manual testing
 
 **Setup:** See `SETUP_EMAIL_NOTIFICATIONS.md` and `SETUP_TASK_SCHEDULER.md`
 
@@ -220,128 +129,72 @@ python manage.py send_reminders
 
 ## Maintenance Commands
 
-### 11. Remove Local Documents
-Remove all local document files from the media directory.
-
-```bash
-python manage.py remove_local_documents
-```
-
-**Options:**
-- `--dry-run`: Show what would be deleted without actually deleting
-- `--keep-records`: Keep database records but remove file references
-
-```bash
-python manage.py remove_local_documents --dry-run
-python manage.py remove_local_documents --keep-records
-```
-
-**What it does:**
-- Deletes all files from `backend/media/evidence_files/`
-- Optionally clears file references from database
-
-**When to use:**
-- Cleaning up local storage
-- Before migrating to cloud-only storage
-- Freeing up disk space
-
-### 12. Remove Duplicates
-Remove duplicate categories, keeping the oldest one.
+### remove_duplicates
+Remove duplicate categories (keeps oldest).
 
 ```bash
 python manage.py remove_duplicates
 ```
 
-**What it does:**
-- Finds categories with duplicate names
-- Keeps the oldest one
-- Deletes duplicates
-
 **When to use:**
-- After importing data multiple times
-- Cleaning up duplicate entries
+- Cleaning up duplicate category names
 
-### 13. Remove Extra Categories
+### remove_extra_categories
 Remove categories that are not in a CSV file.
 
 ```bash
 python manage.py remove_extra_categories all_categories.csv
 ```
 
-**Or with dry run (preview only):**
+**Preview only:**
 ```bash
 python manage.py remove_extra_categories all_categories.csv --dry-run
 ```
 
 **What it does:**
-- Compares database categories with CSV file
-- Removes categories not in CSV (based on "Control Short" column)
-- Keeps only categories listed in CSV
-- Use `--dry-run` to preview what would be deleted
+- Compares database categories with CSV ("Control Short" column)
+- Deletes categories not listed in the CSV
 
 **When to use:**
-- Cleaning up unwanted categories
-- After major CSV updates
-- Syncing database with CSV file
+- Syncing database with CSV after removing rows from the CSV
 
 ---
 
-## Typical Setup Workflow
+## Typical Workflows
 
 ### Initial Setup (First Time)
 
 ```bash
-# 1. Activate virtual environment
 cd backend
-venv\Scripts\activate  # Windows
-# or
-source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate   # Windows (or source venv/bin/activate on Linux/Mac)
 
-# 2. Update/create users
-python manage.py update_users
+# 1. Full refresh: users, controls from CSV, default approver (CSV = backend/all_categories.csv)
+python manage.py full_refresh
 
-# 3. Import controls from CSV
-python manage.py import_controls_csv all_categories.csv --create-users
+# 2. Optional: assign category groups if you use them
+python manage.py assign_category_groups
 
-# 4. Set default approver (if needed)
-python manage.py set_default_approver
-
-# 5. Generate initial submissions
+# 3. Generate initial submissions
 python manage.py generate_submissions
-
-# 6. Test email reminders
-python manage.py send_reminders
 ```
 
 ### Regular Maintenance
 
 ```bash
-# Daily (should be automated):
-python manage.py generate_submissions  # Create new submissions
-python manage.py send_reminders        # Send email reminders
-
-# As needed:
-python manage.py update_users          # Update user accounts
-python manage.py set_default_approver  # Ensure all have approvers
+# Daily (can be automated):
+python manage.py generate_submissions
+python manage.py send_reminders
 ```
 
-### Bulk Updates
+### After Updating all_categories.csv (Full Reset)
 
 ```bash
-# Update controls from CSV (use all_categories.csv)
-python manage.py import_controls_csv all_categories.csv --create-users
+# Reset everything and re-import from CSV
+python manage.py full_refresh
 
-# Assign users to categories from CSV
-python manage.py assign_users_to_categories all_categories.csv
-
-# Assign category groups
+# Optional: reassign category groups, then submissions
 python manage.py assign_category_groups
-
-# Update specific assignees (hardcoded list)
-python manage.py update_assignees
-
-# Update assignees and durations (hardcoded list)
-python manage.py update_controls_from_csv
+python manage.py generate_submissions
 ```
 
 ---
@@ -350,50 +203,38 @@ python manage.py update_controls_from_csv
 
 | Command | Purpose | Frequency |
 |---------|---------|-----------|
-| `update_users` | Update/create users | As needed |
-| `import_controls_csv` | Import/update controls | When CSV changes |
+| `full_refresh` | Clear history, update users, import/refresh from CSV, set approver | Setup / after CSV changes |
 | `add_control` | Add single control | As needed |
-| `update_assignees` | Update assignees | As needed |
-| `update_controls_from_csv` | Update assignees & durations | As needed |
-| `set_default_approver` | Set Manoj as approver | After imports |
-| `assign_category_groups` | Assign groups | After imports |
-| `assign_users_to_categories` | Bulk assign users | As needed |
-| `generate_submissions` | Create submissions | Daily (automated) |
+| `assign_category_groups` | Assign groups to controls | After full refresh if needed |
+| `generate_submissions` | Create submission records | Daily or after refresh |
 | `send_reminders` | Send email reminders | Daily (automated) |
-| `remove_local_documents` | Clean up files | As needed |
-| `remove_duplicates` | Clean duplicates | As needed |
-| `remove_extra_categories` | Remove unwanted | As needed |
+| `remove_duplicates` | Remove duplicate categories | As needed |
+| `remove_extra_categories` | Remove categories not in CSV | As needed |
 
 ---
 
 ## Troubleshooting
 
 ### Command not found?
-- Make sure you're in the `backend` directory
-- Ensure virtual environment is activated
-- Check that Django is installed: `pip list | grep Django`
+- Run commands from the `backend` directory
+- Activate the virtual environment
+- Check Django: `pip list | grep Django`
 
-### Permission errors?
-- Make sure you have write permissions
-- Check database connection
-- Verify `.env` file is configured
-
-### Import errors?
-- Check CSV file format (see `IMPORT_INSTRUCTIONS.md`)
-- Verify CSV file path is correct (default is `all_categories.csv` in backend directory)
-- Check that required columns exist ("Control Short", "Duration", "Assigned to", etc.)
-- Ensure CSV file is saved in the `backend` directory
+### CSV / full_refresh issues?
+- Default CSV path is `backend/all_categories.csv`; use `--csv` for another path
+- See `IMPORT_INSTRUCTIONS.md` for CSV format and column names
+- Use `python manage.py full_refresh --dry-run` to see what would be done
 
 ### Email not sending?
-- Verify email configuration in `.env` (see `SETUP_EMAIL_NOTIFICATIONS.md`)
-- Test with: `python manage.py send_reminders`
-- Check that assignees have email addresses
+- See `SETUP_EMAIL_NOTIFICATIONS.md`
+- Test: `python manage.py send_reminders`
+- Ensure assignees have email addresses
 
 ---
 
 ## Additional Resources
 
-- **Import Instructions:** `IMPORT_INSTRUCTIONS.md`
-- **Email Setup:** `SETUP_EMAIL_NOTIFICATIONS.md`
+- **Import instructions & CSV format:** `IMPORT_INSTRUCTIONS.md`
+- **Email setup:** `SETUP_EMAIL_NOTIFICATIONS.md`
 - **Task Scheduler:** `SETUP_TASK_SCHEDULER.md`
 - **Google OAuth:** `SETUP_GOOGLE_OAUTH.md`

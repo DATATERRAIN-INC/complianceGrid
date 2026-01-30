@@ -27,10 +27,11 @@ ISMS Policy,Annually,Information Security Management System policy,Policy docume
 - `Weekly` → Weekly
 - `Monthly` → Monthly
 - `Quarterly` → Quarterly
-- `Half Yearly` → Half Yearly/Quarterly
+- `Half Yearly` / `Half yearly/Quarterly` → Half yearly/Quarterly
 - `Annually` → Annually
+- `Regular` → Regular
 
-**Note:** Only these 6 values are accepted. Any other values will default to Monthly.
+**Note:** Unrecognized values default to Monthly.
 
 ## Step 2: Save Your CSV File
 
@@ -38,12 +39,14 @@ ISMS Policy,Annually,Information Security Management System policy,Policy docume
 2. Save the file with a name like `all_categories.csv`
 3. Place it in the `backend` folder of the project:
    ```
-   evidence-collection/
+   complianceGrid/
    └── backend/
        └── all_categories.csv  ← Put your file here
    ```
 
-## Step 3: Run the Import Command
+## Step 3: Run Full Refresh (Import + Reset)
+
+The **full_refresh** command does everything in one go: clears submission history, removes local documents, updates users, imports/refreshes controls from your CSV, and sets the default approver.
 
 Open a terminal/PowerShell in the `backend` folder and run:
 
@@ -51,21 +54,40 @@ Open a terminal/PowerShell in the `backend` folder and run:
 # Activate virtual environment (if not already activated)
 .\venv\Scripts\Activate.ps1
 
-# Run the import command
-python manage.py import_controls_csv all_categories.csv --create-users
+# Run full refresh (uses backend/all_categories.csv by default)
+python manage.py full_refresh
 ```
 
-Or if you're in the project root:
+Or with a custom CSV path:
 
 ```bash
-cd backend
-.\venv\Scripts\Activate.ps1
-python manage.py import_controls_csv all_categories.csv --create-users
+python manage.py full_refresh --csv path/to/all_categories.csv
 ```
 
-## Step 4: Verify the Import
+To preview changes without applying them:
 
-After importing, you can check how many categories were imported:
+```bash
+python manage.py full_refresh --dry-run
+```
+
+**What full_refresh does:**
+1. Clears all submission history (submissions, files, comments, notifications)
+2. Removes local document files from `media/evidence_files/`
+3. Updates/syncs users (same set as before: sakthi, monisa, manoj, preeja, etc.)
+4. Imports or updates all controls from the CSV (Control Short, Duration, To Do, Evidence, Assigned to)
+5. Sets Manoj as default approver for controls that don’t have one
+
+## Step 4: Optional – Generate Submissions
+
+After a full refresh, you can create submission records for the current period:
+
+```bash
+python manage.py generate_submissions
+```
+
+## Step 5: Verify the Import
+
+Check how many categories exist:
 
 ```bash
 python manage.py shell -c "from evidence.models import EvidenceCategory; print(f'Total categories: {EvidenceCategory.objects.count()}')"
@@ -74,12 +96,11 @@ python manage.py shell -c "from evidence.models import EvidenceCategory; print(f
 ## Troubleshooting
 
 ### If you get "CSV file not found":
-- Make sure the CSV file is in the `backend` folder
-- Check the file name matches exactly (case-sensitive)
-- Use the full path if needed: `python manage.py import_controls_csv "C:\full\path\to\file.csv" --create-users`
+- By default, the script looks for `all_categories.csv` in the `backend` folder
+- Use `--csv` to specify a path: `python manage.py full_refresh --csv "C:\full\path\to\file.csv"`
 
 ### If column names don't match:
-The import command tries to detect these column name variations:
+The command supports these column name variations:
 - Name: `Control Short`, `Control`, `Name`, `Category`
 - Duration: `Duration`, `Review Period`, `Period`
 - Description: `To Do`, `Description`, `Requirements`
@@ -87,8 +108,7 @@ The import command tries to detect these column name variations:
 - Assigned: `Assigned to`, `Assigned`
 
 ### If you see encoding errors:
-- Make sure your CSV is saved as UTF-8 encoding
-- In Excel: Save As → CSV UTF-8 (Comma delimited) (*.csv)
+- Save your CSV as UTF-8 (e.g. in Excel: Save As → CSV UTF-8 (Comma delimited) (*.csv))
 
 ## Example: Full Import Process
 
@@ -98,19 +118,16 @@ The import command tries to detect these column name variations:
    - Choose "CSV UTF-8 (Comma delimited) (*.csv)"
    - Save as `all_categories.csv` in the `backend` folder
 
-2. **Import:**
+2. **Full refresh (reset + import):**
    ```powershell
-   cd C:\Users\monisa.DATATERRAINAD\evidence-collection\backend
+   cd backend
    .\venv\Scripts\Activate.ps1
-   python manage.py import_controls_csv all_categories.csv --create-users
+   python manage.py full_refresh
    ```
 
-3. **Generate submissions:**
+3. **Generate submissions (optional):**
    ```bash
    python manage.py generate_submissions
    ```
 
-That's it! Your categories will be imported and ready to use.
-
-
-
+That’s it. Your categories are imported and ready to use.
